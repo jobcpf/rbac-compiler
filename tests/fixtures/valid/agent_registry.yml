@@ -1,0 +1,24 @@
+meta:
+  version: "0.1"
+  description: "Test agent registry"
+
+agents:
+  - name: agent_oversight
+    description: "Full access across all orgs"
+    access:
+      - org: arc
+        grade: 0
+        vertical: any
+        scope: global
+      - org: cpf
+        grade: 0
+        vertical: any
+        scope: global
+
+  - name: agent_arc_tech_mz
+    description: "ARC tech, Mozambique only"
+    access:
+      - org: arc
+        grade: 3
+        vertical: tech
+        scope: mz

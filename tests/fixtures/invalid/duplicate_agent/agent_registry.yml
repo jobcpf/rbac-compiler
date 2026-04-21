@@ -1,0 +1,17 @@
+meta:
+  version: "0.1"
+
+agents:
+  - name: agent_overlap
+    access:
+      - org: arc
+        grade: 0
+        vertical: any
+        scope: global
+
+  - name: agent_overlap
+    access:
+      - org: arc
+        grade: 2
+        vertical: tech
+        scope: mz

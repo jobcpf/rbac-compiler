@@ -1,0 +1,11 @@
+meta:
+  version: "0.1"
+
+agents:
+  - name: agent_ghost
+    description: "References an org that has no org file"
+    access:
+      - org: nonexistent_org
+        grade: 0
+        vertical: any
+        scope: global

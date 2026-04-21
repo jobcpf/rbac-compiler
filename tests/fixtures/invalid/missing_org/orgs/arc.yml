@@ -1,0 +1,12 @@
+meta:
+  version: "0.1"
+
+org: arc
+
+definition:
+  name: "ARC Power"
+  grades:
+    0: ""
+    1: ""
+
+data: []

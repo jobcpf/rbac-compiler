@@ -1,0 +1,17 @@
+meta:
+  version: "0.1"
+
+org: arc
+
+definition:
+  name: "ARC Power"
+  grades:
+    0: ""
+    1: ""
+    2: ""
+
+data:
+  - path: "arc/dropbox/Finance"
+    grade: 99
+    vertical: finance
+    scope: global

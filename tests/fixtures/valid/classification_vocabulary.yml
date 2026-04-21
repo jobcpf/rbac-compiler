@@ -1,0 +1,14 @@
+meta:
+  version: "0.1"
+  description: "Test vocabulary"
+
+verticals:
+  - tech
+  - finance
+  - commercial
+
+scopes:
+  - global
+  - mz
+  - rw
+  - uk

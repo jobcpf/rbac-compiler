@@ -1,0 +1,29 @@
+meta:
+  version: "0.1"
+  description: "ARC Power test org"
+
+org: arc
+
+definition:
+  name: "ARC Power"
+  description: "Test org for ARC Power"
+  grades:
+    0: "Executive"
+    1: ""
+    2: ""
+    3: ""
+    4: ""
+    5: ""
+
+data:
+  - path: "arc/dropbox/Finance/Confidential"
+    grade: 2
+    vertical: finance
+    scope: global
+    description: "Executive and senior finance only"
+
+  - path: "arc/drive/Engineering"
+    grade: 4
+    vertical: tech
+    scope: mz
+    description: "Mozambique technical operations"

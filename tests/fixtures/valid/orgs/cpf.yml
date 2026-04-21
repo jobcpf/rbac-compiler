@@ -1,0 +1,19 @@
+meta:
+  version: "0.1"
+  description: "CPF test org"
+
+org: cpf
+
+definition:
+  name: "Carbon Project Finance"
+  grades:
+    0: "Partner"
+    1: ""
+    2: ""
+
+data:
+  - path: "cpf/dropbox/Projects"
+    grade: 2
+    vertical: commercial
+    scope: uk
+    description: "Active carbon project files"
