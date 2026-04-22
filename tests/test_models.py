@@ -6,65 +6,101 @@ from pydantic import ValidationError
 from rbac_compiler.models import (
     AccessGrant,
     Agent,
+    Constants,
     DataEntry,
     OrgDefinition,
-    Vocabulary,
 )
 
 
-class TestVocabulary:
-    def test_valid(self):
-        v = Vocabulary.model_validate({
-            "meta": {"version": "0.1"},
-            "verticals": ["tech", "finance"],
-            "scopes": ["global", "mz"],
+class TestConstants:
+    def test_valid_defaults(self):
+        c = Constants.model_validate({
+            "meta": {"version": "0.2"},
         })
-        assert "global" in v.scopes
+        assert c.grade_range.min == 0
+        assert c.grade_range.max == 20
+        assert c.reserved_tokens.any_vertical == "any"
+        assert c.reserved_tokens.global_scope == "global"
+        assert c.compiler.schema_version == "0.2"
 
-    def test_missing_global_scope(self):
-        with pytest.raises(ValidationError, match="global"):
-            Vocabulary.model_validate({
-                "meta": {"version": "0.1"},
-                "verticals": ["tech"],
-                "scopes": ["mz"],
-            })
-
-    def test_empty_verticals(self):
-        with pytest.raises(ValidationError):
-            Vocabulary.model_validate({
-                "meta": {"version": "0.1"},
-                "verticals": [],
-                "scopes": ["global"],
-            })
-
-    def test_empty_scopes(self):
-        with pytest.raises(ValidationError):
-            Vocabulary.model_validate({
-                "meta": {"version": "0.1"},
-                "verticals": ["tech"],
-                "scopes": [],
-            })
+    def test_explicit_values_accepted(self):
+        c = Constants.model_validate({
+            "meta": {"version": "0.2"},
+            "grade_range": {"min": 0, "max": 10},
+            "reserved_tokens": {"any_vertical": "any", "global_scope": "global"},
+            "compiler": {
+                "registry_dir": "~/registry",
+                "orgs_dir": "orgs",
+                "agents_dir": "agents",
+                "output_file": ".compiled/compiled_plan.yml",
+                "schema_version": "0.2",
+            },
+        })
+        assert c.grade_range.max == 10
 
 
 class TestOrgDefinition:
     def test_valid(self):
         od = OrgDefinition.model_validate({
+            "key": "arc",
             "name": "ARC Power",
+            "verticals": ["tech", "finance"],
+            "scopes": ["global", "mz"],
             "grades": {0: "", 1: "", 2: ""},
         })
+        assert od.key == "arc"
+        assert "global" in od.scopes
         assert 0 in od.grades
-        assert 2 in od.grades
 
-    def test_grades_parsed_from_int_keys(self):
+    def test_grades_parsed_from_string_keys(self):
         od = OrgDefinition.model_validate({
+            "key": "arc",
             "name": "Test",
+            "verticals": ["tech"],
+            "scopes": ["global"],
             "grades": {"0": "Exec", "1": "Staff"},
         })
         assert od.grades[0] == "Exec"
 
-    def test_empty_grades(self):
+    def test_missing_global_in_scopes_rejected(self):
+        with pytest.raises(ValidationError, match="global"):
+            OrgDefinition.model_validate({
+                "key": "arc",
+                "name": "Test",
+                "verticals": ["tech"],
+                "scopes": ["mz"],
+                "grades": {0: ""},
+            })
+
+    def test_empty_verticals_rejected(self):
+        with pytest.raises(ValidationError):
+            OrgDefinition.model_validate({
+                "key": "arc",
+                "name": "Test",
+                "verticals": [],
+                "scopes": ["global"],
+                "grades": {0: ""},
+            })
+
+    def test_empty_grades_rejected(self):
         with pytest.raises(ValidationError, match="empty"):
-            OrgDefinition.model_validate({"name": "Test", "grades": {}})
+            OrgDefinition.model_validate({
+                "key": "arc",
+                "name": "Test",
+                "verticals": ["tech"],
+                "scopes": ["global"],
+                "grades": {},
+            })
+
+    def test_invalid_key_rejected(self):
+        with pytest.raises(ValidationError):
+            OrgDefinition.model_validate({
+                "key": "ARC-Power",
+                "name": "Test",
+                "verticals": ["tech"],
+                "scopes": ["global"],
+                "grades": {0: ""},
+            })
 
 
 class TestDataEntry:
@@ -83,6 +119,10 @@ class TestDataEntry:
     def test_empty_path_rejected(self):
         with pytest.raises(ValidationError):
             DataEntry(path="", grade=0, vertical="tech", scope="global")
+
+    def test_any_vertical_accepted_by_model(self):
+        e = DataEntry(path="agents/_shared/arc/handoffs", grade=5, vertical="any", scope="global")
+        assert e.vertical == "any"
 
 
 class TestAgent:

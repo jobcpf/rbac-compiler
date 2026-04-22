@@ -1,14 +1,10 @@
 """
 Pydantic models for the RBAC registry files.
 
-Revised design: org definitions (name, grades, etc.) live in the individual org
-files (orgs/<org>.yml), NOT in classification_vocabulary.yml. This means adding
-a new org requires only dropping in a single file.
-
 File roles:
-  classification_vocabulary.yml  ->  Vocabulary   (verticals + scopes only)
-  orgs/<org>.yml                 ->  OrgDataFile  (org definition + data entries)
-  agent_registry.yml             ->  AgentRegistry
+  classification_constants.yml  ->  Constants    (grade_range, reserved_tokens, compiler config)
+  orgs/<org>.yml                ->  OrgDataFile  (org definition + data entries)
+  agent_registry.yml            ->  AgentRegistry
 """
 
 from __future__ import annotations
@@ -19,6 +15,7 @@ from typing import Any
 from pydantic import BaseModel, Field, field_validator
 
 LINUX_USERNAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
+ORG_KEY_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 
 
 # ── Shared ────────────────────────────────────────────────────────────────────
@@ -31,32 +28,31 @@ class Meta(BaseModel):
     description: str | None = None
 
 
-# ── classification_vocabulary.yml ─────────────────────────────────────────────
+# ── classification_constants.yml ──────────────────────────────────────────────
 
-class Vocabulary(BaseModel):
-    """Platform-wide vocabulary: verticals and scopes only.
+class GradeRange(BaseModel):
+    min: int = 0
+    max: int = 20
 
-    Org definitions (name, grades, website) live in orgs/<org>.yml so that
-    adding a new organisation requires only one new file.
-    """
 
+class ReservedTokens(BaseModel):
+    any_vertical: str = "any"
+    global_scope: str = "global"
+
+
+class CompilerConfig(BaseModel):
+    registry_dir: str = "~/registry"
+    orgs_dir: str = "orgs"
+    agents_dir: str = "agents"
+    output_file: str = ".compiled/compiled_plan.yml"
+    schema_version: str = "0.2"
+
+
+class Constants(BaseModel):
     meta: Meta
-    verticals: list[str]
-    scopes: list[str]
-
-    @field_validator("verticals", "scopes")
-    @classmethod
-    def lists_nonempty(cls, v: list[str]) -> list[str]:
-        if not v:
-            raise ValueError("must not be empty")
-        return v
-
-    @field_validator("scopes")
-    @classmethod
-    def scopes_has_global(cls, v: list[str]) -> list[str]:
-        if "global" not in v:
-            raise ValueError("scopes must contain 'global'")
-        return v
+    grade_range: GradeRange = Field(default_factory=GradeRange)
+    reserved_tokens: ReservedTokens = Field(default_factory=ReservedTokens)
+    compiler: CompilerConfig = Field(default_factory=CompilerConfig)
 
 
 # ── orgs/<org>.yml ────────────────────────────────────────────────────────────
@@ -81,12 +77,39 @@ class DataEntry(BaseModel):
 
 
 class OrgDefinition(BaseModel):
-    """Org metadata declared at the top of each orgs/<org>.yml file."""
+    """Org metadata and vocabulary declared at the top of each orgs/<org>.yml."""
 
+    key: str
     name: str
     description: str | None = None
     website: str | None = None
+    verticals: list[str]
+    scopes: list[str]
     grades: dict[int, str]
+
+    @field_validator("key")
+    @classmethod
+    def key_valid(cls, v: str) -> str:
+        if not ORG_KEY_RE.match(v):
+            raise ValueError(
+                f"'{v}' is not a valid org key "
+                "(lowercase alphanumeric + underscores, ≤ 32 chars, must start with a letter)"
+            )
+        return v
+
+    @field_validator("verticals", "scopes")
+    @classmethod
+    def lists_nonempty(cls, v: list[str]) -> list[str]:
+        if not v:
+            raise ValueError("must not be empty")
+        return v
+
+    @field_validator("scopes")
+    @classmethod
+    def scopes_has_global(cls, v: list[str]) -> list[str]:
+        if "global" not in v:
+            raise ValueError("scopes must contain 'global'")
+        return v
 
     @field_validator("grades", mode="before")
     @classmethod
@@ -104,19 +127,15 @@ class OrgDefinition(BaseModel):
 
 
 class OrgDataFile(BaseModel):
-    """Represents one orgs/<org>.yml file.
-
-    The top-level `org` key is the canonical org identifier (must be a simple
-    lowercase string). The `org_def` block carries metadata; `data` carries
-    the classification entries.
-    """
+    """Represents one orgs/<org>.yml file."""
 
     meta: Meta
-    org: str
-    org_def: OrgDefinition = Field(alias="definition")
+    org_definition: OrgDefinition
     data: list[DataEntry] = Field(default_factory=list)
 
-    model_config = {"populate_by_name": True}
+    @property
+    def org(self) -> str:
+        return self.org_definition.key
 
 
 # ── agent_registry.yml ────────────────────────────────────────────────────────
@@ -124,8 +143,8 @@ class OrgDataFile(BaseModel):
 class AccessGrant(BaseModel):
     org: str
     grade: int
-    vertical: str   # specific vertical or 'any'
-    scope: str      # specific scope or 'global'
+    vertical: str   # specific vertical name or the reserved 'any' token
+    scope: str      # specific scope name or the reserved 'global' token
 
 
 class Agent(BaseModel):

@@ -1,12 +1,23 @@
 meta:
-  version: "0.1"
+  version: "0.2"
   description: "ARC Power test org"
 
-org: arc
-
-definition:
+org_definition:
+  key: arc
   name: "ARC Power"
   description: "Test org for ARC Power"
+  verticals:
+    - tech
+    - finance
+    - commercial
+    - engineering
+    - ops
+  scopes:
+    - global
+    - mz
+    - rw
+    - za
+    - uk
   grades:
     0: "Executive"
     1: ""
@@ -27,3 +38,9 @@ data:
     vertical: tech
     scope: mz
     description: "Mozambique technical operations"
+
+  - path: "agents/_shared/arc/handoffs"
+    grade: 5
+    vertical: any
+    scope: global
+    description: "Inter-agent task handoff space"

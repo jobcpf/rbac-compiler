@@ -18,21 +18,21 @@ from .errors import CompilerInternalError, RegistryError, RegistryLoadError, Reg
 from .loader import (
     discover_org_files,
     load_agent_registry,
+    load_constants,
     load_org_file,
-    load_vocabulary,
 )
 from .models import (
     AccessGrant,
     Agent,
     AgentRegistry,
+    Constants,
     DataEntry,
     OrgDataFile,
     OrgDefinition,
-    Vocabulary,
 )
 from .validator import ValidationResult, validate_all
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 __all__ = [
     "compile_registry",
     "CompiledPlan",
@@ -43,21 +43,23 @@ __all__ = [
     "RegistryWarning",
     "RegistryLoadError",
     "CompilerInternalError",
-    "Vocabulary",
+    "Constants",
     "OrgDataFile",
     "OrgDefinition",
     "DataEntry",
     "AgentRegistry",
     "Agent",
     "AccessGrant",
-    "load_vocabulary",
+    "load_constants",
     "load_org_file",
     "load_agent_registry",
     "discover_org_files",
 ]
 
 
-def compile_registry(registry_dir: "Path") -> "tuple[CompiledPlan | None, ValidationResult]":  # noqa: F821
+def compile_registry(
+    registry_dir: "Path",  # type: ignore[name-defined]  # noqa: F821
+) -> "tuple[CompiledPlan | None, ValidationResult]":
     """High-level convenience API: load, validate, and compile a registry directory.
 
     Returns (plan, result). If validation fails, plan is None.
@@ -66,17 +68,13 @@ def compile_registry(registry_dir: "Path") -> "tuple[CompiledPlan | None, Valida
     from pathlib import Path as _Path
 
     registry_dir = _Path(registry_dir)
-    vocab_path = registry_dir / "classification_vocabulary.yml"
+    constants_path = registry_dir / "classification_constants.yml"
     agents_path = registry_dir / "agent_registry.yml"
 
-    vocab, vocab_hash = load_vocabulary(vocab_path)
+    constants, constants_hash = load_constants(constants_path)
     agent_reg, agents_hash = load_agent_registry(agents_path)
 
-    org_paths = discover_org_files(registry_dir)
-    org_files = [(load_org_file(p)[0], p) for p in org_paths]
-    org_hashes = {of.org: load_org_file(p)[1] for of, p in org_files}
-
-    # Re-load to get hashes cleanly (loader called twice; acceptable for now)
+    org_paths = discover_org_files(registry_dir, constants.compiler.orgs_dir)
     org_files_with_hashes = []
     org_hashes = {}
     for p in org_paths:
@@ -84,26 +82,25 @@ def compile_registry(registry_dir: "Path") -> "tuple[CompiledPlan | None, Valida
         org_files_with_hashes.append((of, p))
         org_hashes[of.org] = h
 
-    result = validate_all(vocab, vocab_path, org_files_with_hashes, agent_reg, agents_path)
+    result = validate_all(
+        constants, constants_path, org_files_with_hashes, agent_reg, agents_path
+    )
     if not result.ok:
         return None, result
 
-    source_files: dict[str, object] = {
-        "vocabulary": str(vocab_path),
-        "agents": str(agents_path),
-        "orgs": {of.org: str(p) for of, p in org_files_with_hashes},
-    }
-    source_hashes: dict[str, object] = {
-        "vocabulary": vocab_hash,
-        "agents": agents_hash,
-        "orgs": org_hashes,
-    }
-
     plan = compile_plan(
-        vocab=vocab,
+        constants=constants,
         org_files=org_files_with_hashes,
         agent_registry=agent_reg,
-        source_paths=source_files,
-        source_hashes=source_hashes,
+        source_paths={
+            "constants": str(constants_path),
+            "agents": str(agents_path),
+            "orgs": {of.org: str(p) for of, p in org_files_with_hashes},
+        },
+        source_hashes={
+            "constants": constants_hash,
+            "agents": agents_hash,
+            "orgs": org_hashes,
+        },
     )
     return plan, result

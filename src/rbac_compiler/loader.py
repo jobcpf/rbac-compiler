@@ -16,7 +16,7 @@ from ruamel.yaml import YAML
 from ruamel.yaml.constructor import DuplicateKeyError
 
 from .errors import RegistryLoadError
-from .models import AgentRegistry, OrgDataFile, Vocabulary
+from .models import AgentRegistry, Constants, OrgDataFile
 
 
 def _load_yaml(path: Path) -> tuple[Any, str]:
@@ -47,15 +47,17 @@ def _load_yaml(path: Path) -> tuple[Any, str]:
     if data is None:
         raise RegistryLoadError(f"File is empty or contains only comments: {path}")
     if not isinstance(data, dict):
-        raise RegistryLoadError(f"{path}: expected a YAML mapping at top level, got {type(data).__name__}")
+        raise RegistryLoadError(
+            f"{path}: expected a YAML mapping at top level, got {type(data).__name__}"
+        )
 
     return data, sha256
 
 
-def load_vocabulary(path: Path) -> tuple[Vocabulary, str]:
+def load_constants(path: Path) -> tuple[Constants, str]:
     data, sha256 = _load_yaml(path)
     try:
-        return Vocabulary.model_validate(data), sha256
+        return Constants.model_validate(data), sha256
     except Exception as exc:
         raise RegistryLoadError(f"{path}: schema error: {exc}") from exc
 
@@ -76,9 +78,9 @@ def load_agent_registry(path: Path) -> tuple[AgentRegistry, str]:
         raise RegistryLoadError(f"{path}: schema error: {exc}") from exc
 
 
-def discover_org_files(registry_dir: Path) -> list[Path]:
-    """Return all .yml files under registry_dir/orgs/, sorted by name."""
-    orgs_dir = registry_dir / "orgs"
+def discover_org_files(registry_dir: Path, orgs_subdir: str = "orgs") -> list[Path]:
+    """Return all .yml files under registry_dir/<orgs_subdir>/, sorted by name."""
+    orgs_dir = registry_dir / orgs_subdir
     if not orgs_dir.is_dir():
         return []
     return sorted(orgs_dir.glob("*.yml"))

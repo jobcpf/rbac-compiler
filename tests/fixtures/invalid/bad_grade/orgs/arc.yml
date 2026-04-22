@@ -1,10 +1,15 @@
 meta:
-  version: "0.1"
+  version: "0.2"
 
-org: arc
-
-definition:
+org_definition:
+  key: arc
   name: "ARC Power"
+  verticals:
+    - tech
+    - finance
+  scopes:
+    - global
+    - mz
   grades:
     0: ""
     1: ""

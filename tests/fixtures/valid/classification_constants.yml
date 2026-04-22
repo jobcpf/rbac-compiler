@@ -1,0 +1,18 @@
+meta:
+  version: "0.2"
+  description: "Test constants"
+
+grade_range:
+  min: 0
+  max: 20
+
+reserved_tokens:
+  any_vertical: "any"
+  global_scope: "global"
+
+compiler:
+  registry_dir: "~/registry"
+  orgs_dir: "orgs"
+  agents_dir: "agents"
+  output_file: ".compiled/compiled_plan.yml"
+  schema_version: "0.2"

@@ -11,9 +11,9 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .models import AccessGrant, Agent, AgentRegistry, OrgDataFile, Vocabulary
+from .models import AccessGrant, Agent, AgentRegistry, Constants, OrgDataFile
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 
 # ── Group name construction ───────────────────────────────────────────────────
@@ -22,24 +22,42 @@ def group_name(org: str, grade: int, vertical: str, scope: str) -> str:
     return f"{org}_g{grade}_{vertical}_{scope}"
 
 
-def groups_for_grant(grant: AccessGrant, org_file: OrgDataFile, vocab: Vocabulary) -> set[str]:
+def groups_for_grant(
+    grant: AccessGrant,
+    org_file: OrgDataFile,
+    constants: Constants,
+) -> set[str]:
     """Expand a single access grant into the full set of group names it implies.
 
     Rules:
-      - Clearance envelope: agent gets access to grant.grade AND all higher grades
-        (higher number = lower privilege, so the envelope goes upward).
-      - vertical='any'   -> all verticals in the vocabulary
-      - scope='global'   -> all scopes in the vocabulary
-    """
-    all_org_grades = sorted(org_file.org_def.grades.keys())
-    grades = [g for g in all_org_grades if g >= grant.grade]
+      - Clearance envelope: grant.grade and all higher-numbered (less privileged) grades.
+      - vertical='any' -> all of this org's verticals, plus the literal 'any' wildcard group.
+      - vertical=specific -> that vertical, plus the literal 'any' wildcard group.
+      - scope='global' -> all of this org's scopes (which already includes 'global').
+      - scope=specific -> that scope, plus the literal 'global' wildcard group.
 
-    verticals = vocab.verticals if grant.vertical == "any" else [grant.vertical]
-    scopes = vocab.scopes if grant.scope == "global" else [grant.scope]
+    The wildcard groups (e.g. arc_gN_any_global) always appear so that data entries
+    classified as vertical=any or scope=global match agent group memberships correctly.
+    """
+    org_def = org_file.org_definition
+    any_token = constants.reserved_tokens.any_vertical
+    global_token = constants.reserved_tokens.global_scope
+
+    grades_in_envelope = [g for g in sorted(org_def.grades.keys()) if g >= grant.grade]
+
+    if grant.vertical == any_token:
+        verticals = list(org_def.verticals) + [any_token]
+    else:
+        verticals = [grant.vertical, any_token]
+
+    if grant.scope == global_token:
+        scopes = list(org_def.scopes)   # org_def.scopes already contains 'global'
+    else:
+        scopes = [grant.scope, global_token]
 
     return {
         group_name(grant.org, g, v, s)
-        for g in grades
+        for g in grades_in_envelope
         for v in verticals
         for s in scopes
     }
@@ -48,13 +66,13 @@ def groups_for_grant(grant: AccessGrant, org_file: OrgDataFile, vocab: Vocabular
 def groups_for_agent(
     agent: Agent,
     org_files: dict[str, OrgDataFile],
-    vocab: Vocabulary,
+    constants: Constants,
 ) -> list[str]:
     """Return the sorted, deduplicated list of groups for an agent."""
     groups: set[str] = set()
     for grant in agent.access:
         if grant.org in org_files:
-            groups |= groups_for_grant(grant, org_files[grant.org], vocab)
+            groups |= groups_for_grant(grant, org_files[grant.org], constants)
     return sorted(groups)
 
 
@@ -91,7 +109,7 @@ class CompiledPlan:
 # ── Main compilation entry point ──────────────────────────────────────────────
 
 def compile_plan(
-    vocab: Vocabulary,
+    constants: Constants,
     org_files: list[tuple[OrgDataFile, Path]],
     agent_registry: AgentRegistry,
     source_paths: dict[str, object],
@@ -108,8 +126,9 @@ def compile_plan(
     # ── Directory classifications ─────────────────────────────────────────────
     dir_classifications: list[DirectoryClassification] = []
     for org_file, path in org_files:
+        org_key = org_file.org
         for entry in org_file.data:
-            grp = group_name(org_file.org, entry.grade, entry.vertical, entry.scope)
+            grp = group_name(org_key, entry.grade, entry.vertical, entry.scope)
             all_groups.add(grp)
             dir_classifications.append(DirectoryClassification(
                 path=entry.path,
@@ -126,7 +145,7 @@ def compile_plan(
     # ── Agent users ───────────────────────────────────────────────────────────
     agent_users: list[AgentUser] = []
     for agent in agent_registry.agents:
-        ag_groups = groups_for_agent(agent, org_map, vocab)
+        ag_groups = groups_for_agent(agent, org_map, constants)
         all_groups.update(ag_groups)
         agent_users.append(AgentUser(
             name=agent.name,

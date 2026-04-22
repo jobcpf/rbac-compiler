@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .errors import RegistryError, RegistryWarning
-from .models import AgentRegistry, OrgDataFile, Vocabulary
+from .models import AgentRegistry, Constants, OrgDataFile
 
 
 @dataclass
@@ -35,95 +35,82 @@ class ValidationResult:
         self.warnings.extend(other.warnings)
 
 
-def validate_vocabulary(vocab: Vocabulary, path: Path) -> ValidationResult:
-    """Semantic checks on the vocabulary file itself (schema already validated by Pydantic)."""
+def validate_constants(constants: Constants, path: Path) -> ValidationResult:
     result = ValidationResult()
-    # Nothing cross-file to check here; placeholder for future rules.
+    if constants.grade_range.min > constants.grade_range.max:
+        result.error("grade_range.min must be ≤ grade_range.max", file=path)
     return result
 
 
 def validate_org_file(
     org_file: OrgDataFile,
-    vocab: Vocabulary,
+    constants: Constants,
     known_orgs: dict[str, OrgDataFile],
     path: Path,
 ) -> ValidationResult:
-    """Cross-reference checks for a single org data file.
-
-    known_orgs: mapping of org_key -> OrgDataFile for all already-loaded org files,
-    used for duplicate-org detection.
-    """
+    """Cross-reference checks for a single org data file."""
     result = ValidationResult()
+    org_def = org_file.org_definition
+    org_key = org_def.key
+    grade_min = constants.grade_range.min
+    grade_max = constants.grade_range.max
+    any_token = constants.reserved_tokens.any_vertical
+    global_token = constants.reserved_tokens.global_scope
 
     # Filename stem should match declared org key
-    if path.stem != org_file.org:
+    if path.stem != org_key:
         result.warn(
-            f"File basename '{path.stem}.yml' doesn't match declared org '{org_file.org}' — "
+            f"File basename '{path.stem}.yml' doesn't match declared org key '{org_key}' — "
             "consider renaming the file",
             file=path,
         )
 
-    # Grades must start at 0
-    grades = sorted(org_file.org_def.grades.keys())
-    if grades and grades[0] != 0:
-        result.warn(
-            f"Org '{org_file.org}' grade scale doesn't start at 0 (starts at {grades[0]})",
-            file=path,
-        )
+    # Duplicate org key
+    if org_key in known_orgs:
+        result.error(f"Org key '{org_key}' already defined in another file", file=path)
+        return result
 
-    # Grade scale should have no gaps
-    if grades and grades != list(range(grades[0], grades[-1] + 1)):
-        result.warn(
-            f"Org '{org_file.org}' has gaps in grade scale: {grades}",
-            file=path,
-        )
+    # Org grades must be within the platform grade_range
+    for g in org_def.grades:
+        if not (grade_min <= g <= grade_max):
+            result.error(
+                f"Org '{org_key}': grade {g} out of platform range [{grade_min}, {grade_max}]",
+                file=path,
+            )
 
-    # Validate each data entry against vocabulary
+    # Validate each data entry
     seen_paths: set[str] = set()
     for entry in org_file.data:
 
-        # Duplicate paths within this file
         if entry.path in seen_paths:
-            result.error(
-                f"Duplicate path '{entry.path}' in org '{org_file.org}'",
-                file=path,
-            )
+            result.error(f"Duplicate path '{entry.path}' in org '{org_key}'", file=path)
         seen_paths.add(entry.path)
 
-        # Grade defined for this org
-        if entry.grade not in org_file.org_def.grades:
-            valid = sorted(org_file.org_def.grades.keys())
+        # Grade must be declared in this org's grade scale
+        if entry.grade not in org_def.grades:
+            valid = sorted(org_def.grades.keys())
             result.error(
-                f"Path '{entry.path}': grade {entry.grade} not defined for org '{org_file.org}'. "
+                f"Path '{entry.path}': grade {entry.grade} not defined for org '{org_key}'. "
                 f"Valid grades: {valid}",
                 file=path,
             )
 
-        # Vertical in vocabulary
-        if entry.vertical not in vocab.verticals:
+        # Vertical must be in this org's verticals, or the reserved 'any' token
+        if entry.vertical != any_token and entry.vertical not in org_def.verticals:
             result.error(
-                f"Path '{entry.path}': vertical '{entry.vertical}' not in vocabulary. "
-                f"Valid verticals: {vocab.verticals}",
+                f"Path '{entry.path}': vertical '{entry.vertical}' not in org '{org_key}' "
+                f"verticals ({org_def.verticals}) and is not '{any_token}'",
                 file=path,
             )
 
-        # Scope in vocabulary
-        if entry.scope not in vocab.scopes:
+        # Scope must be in this org's scopes (which includes 'global' by construction)
+        if entry.scope not in org_def.scopes:
             result.error(
-                f"Path '{entry.path}': scope '{entry.scope}' not in vocabulary. "
-                f"Valid scopes: {vocab.scopes}",
+                f"Path '{entry.path}': scope '{entry.scope}' not in org '{org_key}' "
+                f"scopes ({org_def.scopes})",
                 file=path,
             )
 
-        # Path should start with org name (convention check)
-        if not entry.path.startswith(f"{org_file.org}/"):
-            result.warn(
-                f"Path '{entry.path}' doesn't start with '{org_file.org}/' — "
-                "unexpected for this org file",
-                file=path,
-            )
-
-        # Spaces in path (valid but surprising)
         if " " in entry.path:
             result.warn(
                 f"Path '{entry.path}' contains spaces — valid but may cause issues with some tools",
@@ -135,60 +122,56 @@ def validate_org_file(
 
 def validate_agent_registry(
     registry: AgentRegistry,
-    vocab: Vocabulary,
+    constants: Constants,
     known_orgs: dict[str, OrgDataFile],
     path: Path,
 ) -> ValidationResult:
     """Cross-reference checks for the agent registry."""
     result = ValidationResult()
+    any_token = constants.reserved_tokens.any_vertical
+    global_token = constants.reserved_tokens.global_scope
 
     seen_names: set[str] = set()
     for agent in registry.agents:
 
-        # Duplicate agent names
         if agent.name in seen_names:
             result.error(f"Duplicate agent name '{agent.name}'", file=path)
         seen_names.add(agent.name)
 
-        # No access grants
         if not agent.access:
             result.warn(f"Agent '{agent.name}' has no access grants", file=path)
             continue
 
         for grant in agent.access:
 
-            # Org must be known (defined by a loaded org file)
             if grant.org not in known_orgs:
                 result.error(
-                    f"Agent '{agent.name}': org '{grant.org}' has no org file in registry/orgs/. "
+                    f"Agent '{agent.name}': org '{grant.org}' has no org file in registry. "
                     f"Known orgs: {sorted(known_orgs.keys())}",
                     file=path,
                 )
                 continue
 
-            org_grades = known_orgs[grant.org].org_def.grades
+            org_def = known_orgs[grant.org].org_definition
 
-            # Grade defined for this org
-            if grant.grade not in org_grades:
+            if grant.grade not in org_def.grades:
                 result.error(
                     f"Agent '{agent.name}': grade {grant.grade} not defined for org '{grant.org}'. "
-                    f"Valid grades: {sorted(org_grades.keys())}",
+                    f"Valid grades: {sorted(org_def.grades.keys())}",
                     file=path,
                 )
 
-            # Vertical: specific value must be in vocabulary (or 'any')
-            if grant.vertical != "any" and grant.vertical not in vocab.verticals:
+            if grant.vertical != any_token and grant.vertical not in org_def.verticals:
                 result.error(
-                    f"Agent '{agent.name}': vertical '{grant.vertical}' not in vocabulary. "
-                    f"Valid verticals: {vocab.verticals} or 'any'",
+                    f"Agent '{agent.name}': vertical '{grant.vertical}' not in org '{grant.org}' "
+                    f"verticals ({org_def.verticals}) and is not '{any_token}'",
                     file=path,
                 )
 
-            # Scope: specific value must be in vocabulary (or 'global')
-            if grant.scope != "global" and grant.scope not in vocab.scopes:
+            if grant.scope != global_token and grant.scope not in org_def.scopes:
                 result.error(
-                    f"Agent '{agent.name}': scope '{grant.scope}' not in vocabulary. "
-                    f"Valid scopes: {vocab.scopes} or 'global'",
+                    f"Agent '{agent.name}': scope '{grant.scope}' not in org '{grant.org}' "
+                    f"scopes ({org_def.scopes})",
                     file=path,
                 )
 
@@ -196,21 +179,40 @@ def validate_agent_registry(
 
 
 def validate_all(
-    vocab: Vocabulary,
-    vocab_path: Path,
+    constants: Constants,
+    constants_path: Path,
     org_files: list[tuple[OrgDataFile, Path]],
     agent_registry: AgentRegistry,
     agents_path: Path,
 ) -> ValidationResult:
     """Run all validation passes and return a combined result."""
     combined = ValidationResult()
-    known_orgs = {of.org: of for of, _ in org_files}
+    schema_version = constants.compiler.schema_version
 
-    combined.merge(validate_vocabulary(vocab, vocab_path))
+    combined.merge(validate_constants(constants, constants_path))
 
+    # Schema version check across all registry files
     for org_file, path in org_files:
-        combined.merge(validate_org_file(org_file, vocab, known_orgs, path))
+        if org_file.meta.version != schema_version:
+            combined.error(
+                f"Schema version mismatch: expected '{schema_version}', "
+                f"got '{org_file.meta.version}'",
+                file=path,
+            )
 
-    combined.merge(validate_agent_registry(agent_registry, vocab, known_orgs, agents_path))
+    if agent_registry.meta.version != schema_version:
+        combined.error(
+            f"Schema version mismatch: expected '{schema_version}', "
+            f"got '{agent_registry.meta.version}'",
+            file=agents_path,
+        )
+
+    known_orgs: dict[str, OrgDataFile] = {}
+    for org_file, path in org_files:
+        combined.merge(validate_org_file(org_file, constants, known_orgs, path))
+        if org_file.org not in known_orgs:
+            known_orgs[org_file.org] = org_file
+
+    combined.merge(validate_agent_registry(agent_registry, constants, known_orgs, agents_path))
 
     return combined
