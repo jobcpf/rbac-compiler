@@ -5,6 +5,7 @@ org_definition:
   key: arc
   name: "ARC Power"
   verticals:
+    - any
     - tech
     - finance
   scopes:

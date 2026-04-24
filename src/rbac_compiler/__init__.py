@@ -13,7 +13,18 @@ Example:
         print(f"Wrote plan to {result.output_path}")
 """
 
-from .compiler import CompiledPlan, compile_plan
+from .compiler import (
+    AdminUser,
+    AgentUser,
+    CompiledPlan,
+    DirectoryClassification,
+    UsedGroup,
+    collect_used_groups,
+    compile_plan,
+    grant_matches_group,
+    groups_for_agent,
+)
+from .matching import grade_match, scope_match, vertical_match
 from .errors import CompilerInternalError, RegistryError, RegistryLoadError, RegistryWarning
 from .loader import (
     discover_org_files,
@@ -40,7 +51,7 @@ from .operations import (
 )
 from .validator import ValidationResult, validate_all
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = [
     "__version__",
@@ -54,8 +65,19 @@ __all__ = [
     # Core compilation
     "CompiledPlan",
     "compile_plan",
+    "collect_used_groups",
+    "groups_for_agent",
+    "grant_matches_group",
+    "UsedGroup",
+    "AgentUser",
+    "AdminUser",
+    "DirectoryClassification",
     "ValidationResult",
     "validate_all",
+    # Match primitives
+    "grade_match",
+    "vertical_match",
+    "scope_match",
     # Loaders
     "load_constants",
     "load_org_file",

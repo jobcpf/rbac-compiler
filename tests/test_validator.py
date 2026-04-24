@@ -107,7 +107,7 @@ class TestSchemaVersionCheck:
             "meta:\n  version: '0.1'\n"
             "org_definition:\n"
             "  key: arc\n  name: ARC\n"
-            "  verticals:\n    - tech\n"
+            "  verticals:\n    - any\n    - tech\n"
             "  scopes:\n    - global\n"
             "  grades:\n    0: ''\n"
             "data: []\n"

@@ -113,7 +113,7 @@ def compile_registry(
     if not result.ok:
         return CompileResult(loaded=loaded, validation=result, plan=None, output_path=None)
 
-    plan = compile_plan(
+    plan, compile_warnings = compile_plan(
         constants=loaded.constants,
         org_files=loaded.org_files,
         agent_registry=loaded.agent_registry,
@@ -128,6 +128,11 @@ def compile_registry(
             "orgs": loaded.org_hashes,
         },
     )
+
+    # Merge compile-phase warnings into the single warning bucket the GUI/CLI
+    # both consume. Emitted YAML stays pure data.
+    for msg in compile_warnings:
+        result.warn(msg)
 
     if check_only:
         return CompileResult(loaded=loaded, validation=result, plan=plan, output_path=None)

@@ -54,8 +54,6 @@ def validate_org_file(
     org_key = org_def.key
     grade_min = constants.grade_range.min
     grade_max = constants.grade_range.max
-    any_token = constants.reserved_tokens.any_vertical
-    global_token = constants.reserved_tokens.global_scope
 
     # Filename stem should match declared org key
     if path.stem != org_key:
@@ -95,11 +93,11 @@ def validate_org_file(
                 file=path,
             )
 
-        # Vertical must be in this org's verticals, or the reserved 'any' token
-        if entry.vertical != any_token and entry.vertical not in org_def.verticals:
+        # Vertical must be in this org's verticals (which includes 'any' by construction)
+        if entry.vertical not in org_def.verticals:
             result.error(
                 f"Path '{entry.path}': vertical '{entry.vertical}' not in org '{org_key}' "
-                f"verticals ({org_def.verticals}) and is not '{any_token}'",
+                f"verticals ({org_def.verticals})",
                 file=path,
             )
 
@@ -128,8 +126,6 @@ def validate_agent_registry(
 ) -> ValidationResult:
     """Cross-reference checks for the agent registry."""
     result = ValidationResult()
-    any_token = constants.reserved_tokens.any_vertical
-    global_token = constants.reserved_tokens.global_scope
 
     seen_names: set[str] = set()
     for agent in registry.agents:
@@ -161,14 +157,14 @@ def validate_agent_registry(
                     file=path,
                 )
 
-            if grant.vertical != any_token and grant.vertical not in org_def.verticals:
+            if grant.vertical not in org_def.verticals:
                 result.error(
                     f"Agent '{agent.name}': vertical '{grant.vertical}' not in org '{grant.org}' "
-                    f"verticals ({org_def.verticals}) and is not '{any_token}'",
+                    f"verticals ({org_def.verticals})",
                     file=path,
                 )
 
-            if grant.scope != global_token and grant.scope not in org_def.scopes:
+            if grant.scope not in org_def.scopes:
                 result.error(
                     f"Agent '{agent.name}': scope '{grant.scope}' not in org '{grant.org}' "
                     f"scopes ({org_def.scopes})",

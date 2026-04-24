@@ -53,6 +53,18 @@ class Constants(BaseModel):
     grade_range: GradeRange = Field(default_factory=GradeRange)
     reserved_tokens: ReservedTokens = Field(default_factory=ReservedTokens)
     compiler: CompilerConfig = Field(default_factory=CompilerConfig)
+    admins: list[str] = Field(default_factory=list)
+
+    @field_validator("admins")
+    @classmethod
+    def admins_are_valid_usernames(cls, v: list[str]) -> list[str]:
+        for name in v:
+            if not LINUX_USERNAME_RE.match(name):
+                raise ValueError(
+                    f"admin '{name}' is not a valid Linux username "
+                    "(lowercase, alphanumeric + underscores, ≤ 32 chars, must start with a letter)"
+                )
+        return v
 
 
 # ── orgs/<org>.yml ────────────────────────────────────────────────────────────
@@ -104,11 +116,18 @@ class OrgDefinition(BaseModel):
             raise ValueError("must not be empty")
         return v
 
+    @field_validator("verticals")
+    @classmethod
+    def verticals_has_any(cls, v: list[str]) -> list[str]:
+        if "any" not in v:
+            raise ValueError("verticals must contain the wildcard 'any'")
+        return v
+
     @field_validator("scopes")
     @classmethod
     def scopes_has_global(cls, v: list[str]) -> list[str]:
         if "global" not in v:
-            raise ValueError("scopes must contain 'global'")
+            raise ValueError("scopes must contain the wildcard 'global'")
         return v
 
     @field_validator("grades", mode="before")

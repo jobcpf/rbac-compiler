@@ -1,19 +1,23 @@
 """
 Core compilation logic — pure functions, no I/O, no side effects.
 
-Takes validated model instances, computes the full set of Linux groups,
-agent memberships, and directory classifications needed on the target system.
+v0.3 model: `required_groups` is *data-driven*. Only groups referenced by a
+directory classification exist. Agents are matched lazily against that set.
+Admin users (from `constants.admins`) are added to every group in the set.
+
+See RBAC_Compiler_v0_3_Brief.md for the full specification.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .matching import grade_match, scope_match, vertical_match
 from .models import AccessGrant, Agent, AgentRegistry, Constants, OrgDataFile
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 
 # ── Group name construction ───────────────────────────────────────────────────
@@ -22,58 +26,62 @@ def group_name(org: str, grade: int, vertical: str, scope: str) -> str:
     return f"{org}_g{grade}_{vertical}_{scope}"
 
 
-def groups_for_grant(
-    grant: AccessGrant,
-    org_file: OrgDataFile,
-    constants: Constants,
-) -> set[str]:
-    """Expand a single access grant into the full set of group names it implies.
+# ── Used group (a group that at least one directory classifies to) ────────────
 
-    Rules:
-      - Clearance envelope: grant.grade and all higher-numbered (less privileged) grades.
-      - vertical='any' -> all of this org's verticals, plus the literal 'any' wildcard group.
-      - vertical=specific -> that vertical, plus the literal 'any' wildcard group.
-      - scope='global' -> all of this org's scopes (which already includes 'global').
-      - scope=specific -> that scope, plus the literal 'global' wildcard group.
+@dataclass(frozen=True)
+class UsedGroup:
+    name: str
+    org: str
+    grade: int
+    vertical: str
+    scope: str
 
-    The wildcard groups (e.g. arc_gN_any_global) always appear so that data entries
-    classified as vertical=any or scope=global match agent group memberships correctly.
+
+def collect_used_groups(
+    org_files: list[tuple[OrgDataFile, Path]],
+) -> list[UsedGroup]:
+    """Walk every data entry across every org and collect the unique set of
+    (org, grade, vertical, scope) tuples. Two directories may share a group;
+    it still counts as one group on the system.
     """
-    org_def = org_file.org_definition
-    any_token = constants.reserved_tokens.any_vertical
-    global_token = constants.reserved_tokens.global_scope
+    seen: dict[str, UsedGroup] = {}
+    for org_file, _ in org_files:
+        for entry in org_file.data:
+            name = group_name(org_file.org, entry.grade, entry.vertical, entry.scope)
+            if name not in seen:
+                seen[name] = UsedGroup(
+                    name=name,
+                    org=org_file.org,
+                    grade=entry.grade,
+                    vertical=entry.vertical,
+                    scope=entry.scope,
+                )
+    return sorted(seen.values(), key=lambda g: g.name)
 
-    grades_in_envelope = [g for g in sorted(org_def.grades.keys()) if g >= grant.grade]
 
-    if grant.vertical == any_token:
-        verticals = list(org_def.verticals) + [any_token]
-    else:
-        verticals = [grant.vertical, any_token]
+# ── Agent → group matching ────────────────────────────────────────────────────
 
-    if grant.scope == global_token:
-        scopes = list(org_def.scopes)   # org_def.scopes already contains 'global'
-    else:
-        scopes = [grant.scope, global_token]
-
-    return {
-        group_name(grant.org, g, v, s)
-        for g in grades_in_envelope
-        for v in verticals
-        for s in scopes
-    }
+def grant_matches_group(grant: AccessGrant, group: UsedGroup) -> bool:
+    """All three dimensions must agree for an agent grant to gain access."""
+    return (
+        grant.org == group.org
+        and grade_match(grant.grade, group.grade)
+        and vertical_match(grant.vertical, group.vertical)
+        and scope_match(grant.scope, group.scope)
+    )
 
 
 def groups_for_agent(
     agent: Agent,
-    org_files: dict[str, OrgDataFile],
-    constants: Constants,
+    used_groups: list[UsedGroup],
 ) -> list[str]:
-    """Return the sorted, deduplicated list of groups for an agent."""
-    groups: set[str] = set()
+    """Return the sorted set of group names the agent matches at least once."""
+    matched: set[str] = set()
     for grant in agent.access:
-        if grant.org in org_files:
-            groups |= groups_for_grant(grant, org_files[grant.org], constants)
-    return sorted(groups)
+        for group in used_groups:
+            if grant_matches_group(grant, group):
+                matched.add(group.name)
+    return sorted(matched)
 
 
 # ── Output data structures ────────────────────────────────────────────────────
@@ -96,6 +104,17 @@ class AgentUser:
 
 
 @dataclass
+class AdminUser:
+    """A pre-existing Linux user (human or system account) that should be
+    added to every required group. Ansible ensures the account exists and
+    manages its group memberships; the compiler only specifies intent.
+    """
+
+    name: str
+    groups: list[str]
+
+
+@dataclass
 class CompiledPlan:
     compiled_at: str
     compiler_version: str
@@ -103,6 +122,7 @@ class CompiledPlan:
     source_hashes: dict[str, object]
     required_groups: list[str]
     agent_users: list[AgentUser]
+    admin_users: list[AdminUser]
     directory_classifications: list[DirectoryClassification]
 
 
@@ -114,22 +134,55 @@ def compile_plan(
     agent_registry: AgentRegistry,
     source_paths: dict[str, object],
     source_hashes: dict[str, object],
-) -> CompiledPlan:
+) -> tuple[CompiledPlan, list[str]]:
     """Compile registry inputs into a concrete plan.
 
-    Always includes 'fileserver_admins' in required_groups.
+    Returns (plan, warnings). Warnings are compile-time observations (empty
+    data, unmatched agent) that callers typically merge into the pipeline's
+    ValidationResult so the GUI/CLI see them alongside validation warnings.
+
     Output is deterministic: same input -> same output byte-for-byte.
     """
-    org_map: dict[str, OrgDataFile] = {of.org: of for of, _ in org_files}
-    all_groups: set[str] = {"fileserver_admins"}
+    warnings: list[str] = []
 
-    # ── Directory classifications ─────────────────────────────────────────────
+    # ── Phase 3: collect used_groups from data ────────────────────────────────
+    used_groups = collect_used_groups(org_files)
+    required_group_names = [g.name for g in used_groups]
+
+    if not used_groups:
+        warnings.append(
+            "Registry has no directory classifications — "
+            "required_groups will be empty and no agent will be a member of any group"
+        )
+
+    # ── Phase 4: match agents against used_groups ─────────────────────────────
+    agent_users: list[AgentUser] = []
+    for agent in agent_registry.agents:
+        matched = groups_for_agent(agent, used_groups)
+        if agent.access and not matched:
+            warnings.append(
+                f"Agent '{agent.name}' matches no directory groups — "
+                "registry may be incomplete or grants miscalibrated. "
+                "Agent user will be created with no group memberships."
+            )
+        agent_users.append(AgentUser(
+            name=agent.name,
+            description=agent.description,
+            groups=matched,
+        ))
+
+    # ── Admin users: membership of every required group ──────────────────────
+    admin_users: list[AdminUser] = [
+        AdminUser(name=name, groups=list(required_group_names))
+        for name in constants.admins
+    ]
+
+    # ── Phase 5: directory classifications ────────────────────────────────────
     dir_classifications: list[DirectoryClassification] = []
     for org_file, path in org_files:
         org_key = org_file.org
         for entry in org_file.data:
             grp = group_name(org_key, entry.grade, entry.vertical, entry.scope)
-            all_groups.add(grp)
             dir_classifications.append(DirectoryClassification(
                 path=entry.path,
                 group=grp,
@@ -138,27 +191,17 @@ def compile_plan(
                 description=entry.description,
                 source_file=path.name,
             ))
-
     # Sort by path so parents appear before children (Ansible applies top-down)
     dir_classifications.sort(key=lambda d: d.path)
 
-    # ── Agent users ───────────────────────────────────────────────────────────
-    agent_users: list[AgentUser] = []
-    for agent in agent_registry.agents:
-        ag_groups = groups_for_agent(agent, org_map, constants)
-        all_groups.update(ag_groups)
-        agent_users.append(AgentUser(
-            name=agent.name,
-            description=agent.description,
-            groups=ag_groups,
-        ))
-
-    return CompiledPlan(
+    plan = CompiledPlan(
         compiled_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         compiler_version=__version__,
         source_files=source_paths,
         source_hashes=source_hashes,
-        required_groups=sorted(all_groups),
+        required_groups=required_group_names,
         agent_users=agent_users,
+        admin_users=admin_users,
         directory_classifications=dir_classifications,
     )
+    return plan, warnings

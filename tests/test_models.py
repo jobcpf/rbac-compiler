@@ -22,6 +22,7 @@ class TestConstants:
         assert c.reserved_tokens.any_vertical == "any"
         assert c.reserved_tokens.global_scope == "global"
         assert c.compiler.schema_version == "0.2"
+        assert c.admins == []
 
     def test_explicit_values_accepted(self):
         c = Constants.model_validate({
@@ -35,8 +36,17 @@ class TestConstants:
                 "output_file": ".compiled/compiled_plan.yml",
                 "schema_version": "0.2",
             },
+            "admins": ["beaver", "ansi"],
         })
         assert c.grade_range.max == 10
+        assert c.admins == ["beaver", "ansi"]
+
+    def test_invalid_admin_username_rejected(self):
+        with pytest.raises(ValidationError, match="valid Linux username"):
+            Constants.model_validate({
+                "meta": {"version": "0.2"},
+                "admins": ["BadUser"],
+            })
 
 
 class TestOrgDefinition:
@@ -44,11 +54,12 @@ class TestOrgDefinition:
         od = OrgDefinition.model_validate({
             "key": "arc",
             "name": "ARC Power",
-            "verticals": ["tech", "finance"],
+            "verticals": ["any", "tech", "finance"],
             "scopes": ["global", "mz"],
             "grades": {0: "", 1: "", 2: ""},
         })
         assert od.key == "arc"
+        assert "any" in od.verticals
         assert "global" in od.scopes
         assert 0 in od.grades
 
@@ -56,18 +67,28 @@ class TestOrgDefinition:
         od = OrgDefinition.model_validate({
             "key": "arc",
             "name": "Test",
-            "verticals": ["tech"],
+            "verticals": ["any", "tech"],
             "scopes": ["global"],
             "grades": {"0": "Exec", "1": "Staff"},
         })
         assert od.grades[0] == "Exec"
+
+    def test_missing_any_in_verticals_rejected(self):
+        with pytest.raises(ValidationError, match="any"):
+            OrgDefinition.model_validate({
+                "key": "arc",
+                "name": "Test",
+                "verticals": ["tech"],
+                "scopes": ["global"],
+                "grades": {0: ""},
+            })
 
     def test_missing_global_in_scopes_rejected(self):
         with pytest.raises(ValidationError, match="global"):
             OrgDefinition.model_validate({
                 "key": "arc",
                 "name": "Test",
-                "verticals": ["tech"],
+                "verticals": ["any", "tech"],
                 "scopes": ["mz"],
                 "grades": {0: ""},
             })
@@ -87,7 +108,7 @@ class TestOrgDefinition:
             OrgDefinition.model_validate({
                 "key": "arc",
                 "name": "Test",
-                "verticals": ["tech"],
+                "verticals": ["any", "tech"],
                 "scopes": ["global"],
                 "grades": {},
             })
@@ -97,7 +118,7 @@ class TestOrgDefinition:
             OrgDefinition.model_validate({
                 "key": "ARC-Power",
                 "name": "Test",
-                "verticals": ["tech"],
+                "verticals": ["any", "tech"],
                 "scopes": ["global"],
                 "grades": {0: ""},
             })

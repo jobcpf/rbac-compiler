@@ -113,13 +113,26 @@ Adding a new organisation requires only dropping a new `.yml` file into `orgs/`.
 
 ## Output
 
-`compiled_plan.yml` contains three sections:
+`compiled_plan.yml` contains four sections:
 
-- **`required_groups`** — all Linux groups that must exist on the fileserver
-- **`agent_users`** — each agent's username and group membership list
-- **`directory_classifications`** — each classified path with its owning group and ACL mode
+- **`required_groups`** — all Linux groups that must exist on the fileserver. In v0.3 this is *data-driven*: only groups that at least one directory classifies to appear. Agent grants with wildcards no longer expand into a cartesian product of groups.
+- **`agent_users`** — each agent's username, description, and the subset of `required_groups` their grants match (via the three match rules: grade hierarchy, symmetric vertical wildcard `any`, symmetric scope wildcard `global`).
+- **`admin_users`** — pre-existing Linux users (declared in `classification_constants.yml` under `admins:`) that must be added to *every* group in `required_groups`. Useful for host accounts like `beaver` that need access to everything.
+- **`directory_classifications`** — each classified path with its owning group and ACL mode.
 
 Ansible reads this file and applies the state to the fileserver.
+
+### Adding admin super-users
+
+Add usernames to `classification_constants.yml`:
+
+```yaml
+admins:
+  - beaver        # fileserver host account
+  - ansi          # Ansible's own account
+```
+
+Ansible is responsible for ensuring the account exists (create if missing) and adding it to the groups specified. If `admins:` is omitted or empty, no admin entries appear in the plan. Rely on agents at `grade: 0, vertical: any, scope: global` instead.
 
 ## Development
 
@@ -139,7 +152,9 @@ mypy src/
 
 ## Schema version
 
-All registry files must carry `meta.version: "0.2"`. The compiler rejects files with a mismatched version. The expected version is configured in `classification_constants.yml` under `compiler.schema_version`.
+All registry files must carry `meta.version: "0.2"`. The compiler rejects files with a mismatched version. The expected version is configured in `classification_constants.yml` under `compiler.schema_version`. Note that the *compiler* version is 0.3.x but the *schema* version stays at 0.2 — v0.3 changed the compiler's group-selection logic, not the registry file format.
+
+See [RBAC_Compiler_v0_3_Brief.md](../RBAC_Compiler_v0_3_Brief.md) for the authoritative spec.
 
 ## License
 

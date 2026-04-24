@@ -6,6 +6,7 @@ org_definition:
   key: cpf
   name: "Carbon Project Finance"
   verticals:
+    - any
     - advisory
     - projects
     - regulatory

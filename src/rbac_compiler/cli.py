@@ -150,6 +150,7 @@ def cli(
         click.echo(
             f"Compiled {len(result.plan.required_groups)} groups, "
             f"{len(result.plan.agent_users)} agents, "
+            f"{len(result.plan.admin_users)} admins, "
             f"{len(result.plan.directory_classifications)} directories "
             f"-> {result.output_path}"
         )

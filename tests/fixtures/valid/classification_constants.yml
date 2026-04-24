@@ -16,3 +16,6 @@ compiler:
   agents_dir: "agents"
   output_file: ".compiled/compiled_plan.yml"
   schema_version: "0.2"
+
+admins:
+  - beaver

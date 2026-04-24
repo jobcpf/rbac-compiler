@@ -56,12 +56,25 @@ class TestCompileMode:
         assert result.exit_code == 0, result.output
         assert output.exists()
 
-    def test_output_contains_required_groups(self, runner, tmp_path):
+    def test_output_contains_data_defined_group(self, runner, tmp_path):
         output = tmp_path / "plan.yml"
         runner.invoke(cli, ["--registry-dir", str(VALID), "--output", str(output)])
         content = output.read_text()
-        assert "fileserver_admins" in content
         assert "arc_g2_finance_global" in content
+
+    def test_output_does_not_contain_fileserver_admins(self, runner, tmp_path):
+        """v0.3 dropped the implicit fileserver_admins group."""
+        output = tmp_path / "plan.yml"
+        runner.invoke(cli, ["--registry-dir", str(VALID), "--output", str(output)])
+        content = output.read_text()
+        assert "fileserver_admins" not in content
+
+    def test_output_contains_admin_users_section(self, runner, tmp_path):
+        output = tmp_path / "plan.yml"
+        runner.invoke(cli, ["--registry-dir", str(VALID), "--output", str(output)])
+        content = output.read_text()
+        assert "admin_users:" in content
+        assert "beaver" in content
 
     def test_json_format_output(self, runner, tmp_path):
         import json
@@ -75,6 +88,7 @@ class TestCompileMode:
         data = json.loads(output.read_text())
         assert "required_groups" in data
         assert "agent_users" in data
+        assert "admin_users" in data
         assert "directory_classifications" in data
 
     def test_output_reports_counts(self, runner, tmp_path):
@@ -82,6 +96,7 @@ class TestCompileMode:
         result = runner.invoke(cli, ["--registry-dir", str(VALID), "--output", str(output)])
         assert "groups" in result.output
         assert "agents" in result.output
+        assert "admins" in result.output
         assert "directories" in result.output
 
     def test_default_output_path_in_compiled_dir(self, runner, tmp_path):
@@ -104,4 +119,4 @@ class TestCompileMode:
     def test_version_flag(self, runner):
         result = runner.invoke(cli, ["--version"])
         assert result.exit_code == 0
-        assert "0.2.0" in result.output
+        assert "0.3.0" in result.output

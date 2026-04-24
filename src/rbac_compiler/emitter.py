@@ -32,6 +32,13 @@ def _plan_to_dict(plan: CompiledPlan) -> dict[str, Any]:
             }
             for au in plan.agent_users
         ],
+        "admin_users": [
+            {
+                "name": au.name,
+                "groups": au.groups,
+            }
+            for au in plan.admin_users
+        ],
         "directory_classifications": [
             {
                 "path": dc.path,
