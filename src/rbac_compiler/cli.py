@@ -1,6 +1,9 @@
 """
 CLI entry point for rbac-compile.
 
+Thin wrapper over rbac_compiler.operations — argument parsing, logging,
+and human-readable formatting. Structured results come from operations.py.
+
 Usage:
     rbac-compile [OPTIONS]
     python -m rbac_compiler [OPTIONS]
@@ -15,11 +18,9 @@ from pathlib import Path
 import click
 
 from . import __version__
-from .compiler import compile_plan
-from .emitter import emit
 from .errors import RegistryLoadError
-from .loader import discover_org_files, load_agent_registry, load_constants, load_org_file
-from .validator import ValidationResult, validate_all
+from .operations import CompileResult, compile_registry
+from .validator import ValidationResult
 
 logger = logging.getLogger("rbac_compile")
 
@@ -32,6 +33,25 @@ def _setup_logging(verbose: bool, quiet: bool) -> None:
     else:
         level = logging.WARNING
     logging.basicConfig(format="%(levelname)s: %(message)s", level=level, stream=sys.stderr)
+
+
+def _default_registry_dir() -> Path:
+    return Path.home() / "registry"
+
+
+def _print_warnings(validation: ValidationResult) -> None:
+    for w in validation.warnings:
+        click.echo(f"WARN: {w}", err=True)
+
+
+def _print_errors(validation: ValidationResult) -> None:
+    for e in validation.errors:
+        click.echo(f"ERROR: {e}", err=True)
+    click.echo(
+        f"\nValidation failed: {len(validation.errors)} error(s), "
+        f"{len(validation.warnings)} warning(s).",
+        err=True,
+    )
 
 
 @click.command(context_settings={"help_option_names": ["-h", "--help"]})
@@ -86,65 +106,34 @@ def cli(
     from the registry directory, validates them, and writes compiled_plan.yml.
     """
     _setup_logging(verbose, quiet)
+    reg_dir = (registry_dir or _default_registry_dir()).expanduser().resolve()
 
-    registry_dir = (registry_dir or Path.home() / "registry").expanduser().resolve()
-
-    constants_path = registry_dir / "classification_constants.yml"
-    agents_path = registry_dir / "agent_registry.yml"
-
-    # ── Load ──────────────────────────────────────────────────────────────────
     try:
-        constants, constants_hash = load_constants(constants_path)
-        logger.info("Loaded constants: %s", constants_path)
-
-        if output is None:
-            output = registry_dir / constants.compiler.output_file
-
-        agent_registry, agents_hash = load_agent_registry(agents_path)
-        logger.info(
-            "Loaded agent registry: %s (%d agents)", agents_path, len(agent_registry.agents)
+        result: CompileResult = compile_registry(
+            registry_dir=reg_dir,
+            output=output,
+            fmt=fmt.lower(),
+            check_only=check,
         )
-
-        org_paths = discover_org_files(registry_dir, constants.compiler.orgs_dir)
-        if not org_paths:
-            click.echo(
-                f"WARN: No org files found in {registry_dir / constants.compiler.orgs_dir}",
-                err=True,
-            )
-
-        org_files: list = []
-        org_hashes: dict = {}
-        for p in org_paths:
-            org_file, org_hash = load_org_file(p)
-            org_files.append((org_file, p))
-            org_hashes[org_file.org] = org_hash
-            logger.info("Loaded org file: %s (%d entries)", p, len(org_file.data))
-
     except RegistryLoadError as exc:
         click.echo(f"ERROR: {exc}", err=True)
         sys.exit(2)
+    except OSError as exc:
+        click.echo(f"ERROR: Cannot write output: {exc}", err=True)
+        sys.exit(2)
+    except Exception as exc:
+        click.echo(f"CRITICAL: Internal compiler error: {exc}", err=True)
+        sys.exit(3)
 
-    # ── Validate ──────────────────────────────────────────────────────────────
-    result: ValidationResult = validate_all(
-        constants, constants_path, org_files, agent_registry, agents_path
-    )
+    _print_warnings(result.validation)
 
-    for w in result.warnings:
-        click.echo(f"WARN: {w}", err=True)
-
-    if not result.ok:
-        for e in result.errors:
-            click.echo(f"ERROR: {e}", err=True)
-        click.echo(
-            f"\nValidation failed: {len(result.errors)} error(s), "
-            f"{len(result.warnings)} warning(s).",
-            err=True,
-        )
+    if not result.validation.ok:
+        _print_errors(result.validation)
         sys.exit(1)
 
-    n_orgs = len(org_files)
-    n_agents = len(agent_registry.agents)
-    n_entries = sum(len(of.data) for of, _ in org_files)
+    n_orgs = len(result.loaded.org_files)
+    n_agents = len(result.loaded.agent_registry.agents)
+    n_entries = sum(len(of.data) for of, _ in result.loaded.org_files)
 
     if check:
         if not quiet:
@@ -153,41 +142,16 @@ def cli(
             )
         sys.exit(0)
 
-    # ── Compile ───────────────────────────────────────────────────────────────
-    try:
-        plan = compile_plan(
-            constants=constants,
-            org_files=org_files,
-            agent_registry=agent_registry,
-            source_paths={
-                "constants": str(constants_path),
-                "agents": str(agents_path),
-                "orgs": {of.org: str(p) for of, p in org_files},
-            },
-            source_hashes={
-                "constants": constants_hash,
-                "agents": agents_hash,
-                "orgs": org_hashes,
-            },
-        )
-    except Exception as exc:
-        click.echo(f"CRITICAL: Internal compiler error: {exc}", err=True)
+    if result.plan is None or result.output_path is None:
+        click.echo("ERROR: internal state: plan missing after validation passed", err=True)
         sys.exit(3)
-
-    # ── Emit ──────────────────────────────────────────────────────────────────
-    assert output is not None
-    try:
-        emit(plan, output, fmt=fmt)
-    except OSError as exc:
-        click.echo(f"ERROR: Cannot write output: {exc}", err=True)
-        sys.exit(2)
 
     if not quiet:
         click.echo(
-            f"Compiled {len(plan.required_groups)} groups, "
-            f"{len(plan.agent_users)} agents, "
-            f"{len(plan.directory_classifications)} directories "
-            f"-> {output}"
+            f"Compiled {len(result.plan.required_groups)} groups, "
+            f"{len(result.plan.agent_users)} agents, "
+            f"{len(result.plan.directory_classifications)} directories "
+            f"-> {result.output_path}"
         )
 
 
