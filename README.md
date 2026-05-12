@@ -54,7 +54,7 @@ rbac-compile [OPTIONS]
 
 | Option | Short | Description |
 |--------|-------|-------------|
-| `--registry-dir PATH` | `-r` | Registry directory. Default: `~/registry` |
+| `--registry-dir PATH` | `-r` | Registry directory. Default: `~/ansible/registry` |
 | `--output PATH` | `-o` | Output file. Default: `<registry-dir>/.compiled/compiled_plan.yml` |
 | `--check` | `-c` | Validate only — do not write output. Exits 0 if valid. |
 | `--format [yaml\|json]` | | Output format. Default: `yaml` |
@@ -152,7 +152,7 @@ mypy src/
 
 ## Schema version
 
-All registry files must carry `meta.version: "0.2"`. The compiler rejects files with a mismatched version. The expected version is configured in `classification_constants.yml` under `compiler.schema_version`. Note that the *compiler* version is 0.3.x but the *schema* version stays at 0.2 — v0.3 changed the compiler's group-selection logic, not the registry file format.
+All registry files must carry `meta.version: "0.3"`. The compiler rejects files with a mismatched version and emits an operator-facing migration message for v0.2 layouts. The expected version is configured in `classification_constants.yml` under `compiler.schema_version`.
 
 See [RBAC_Compiler_v0_3_Brief.md](../RBAC_Compiler_v0_3_Brief.md) for the authoritative spec.
 

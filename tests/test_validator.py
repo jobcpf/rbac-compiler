@@ -98,6 +98,20 @@ class TestMissingOrg:
         assert any("nonexistent_org" in str(e) for e in result.errors)
 
 
+class TestV02FailFast:
+    """v0.3.1 must reject a v0.2 constants file with operator-facing migration guidance."""
+
+    def test_v02_constants_file_fails_with_migration_message(self):
+        from rbac_compiler.models import Constants
+        from rbac_compiler.validator import validate_constants
+        c = Constants.model_validate({"meta": {"version": "0.2"}})
+        result = validate_constants(c, Path("classification_constants.yml"))
+        assert not result.ok
+        msg = " ".join(str(e) for e in result.errors)
+        assert "v0.2" in msg
+        assert "Bump `meta.version`" in msg or "Bump" in msg
+
+
 class TestSchemaVersionCheck:
     def test_wrong_version_org_file_is_error(self, tmp_path):
         constants = _constants()
@@ -114,7 +128,7 @@ class TestSchemaVersionCheck:
         )
         from rbac_compiler.models import AgentRegistry, Meta
         org_file = _org(org_path)
-        agents = AgentRegistry(meta=Meta(version="0.2"), agents=[])
+        agents = AgentRegistry(meta=Meta(version="0.3"), agents=[])
         result = validate_all(
             constants,
             VALID / "classification_constants.yml",

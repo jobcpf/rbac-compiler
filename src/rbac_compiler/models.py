@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 LINUX_USERNAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 ORG_KEY_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
@@ -41,14 +41,19 @@ class ReservedTokens(BaseModel):
 
 
 class CompilerConfig(BaseModel):
-    registry_dir: str = "~/registry"
+    registry_dir: str = "~/ansible/registry"
     orgs_dir: str = "orgs"
     agents_dir: str = "agents"
     output_file: str = ".compiled/compiled_plan.yml"
-    schema_version: str = "0.2"
+    schema_version: str = "0.3"
 
 
 class Constants(BaseModel):
+    # extra='allow' tolerates fields owned by other platform tools (e.g.
+    # agent_user_defaults consumed by apply_rbac_plan.yml, directory_defaults
+    # reserved for future use). The compiler does not validate them.
+    model_config = ConfigDict(extra="allow")
+
     meta: Meta
     grade_range: GradeRange = Field(default_factory=GradeRange)
     reserved_tokens: ReservedTokens = Field(default_factory=ReservedTokens)
@@ -167,6 +172,12 @@ class AccessGrant(BaseModel):
 
 
 class Agent(BaseModel):
+    # extra='allow' tolerates fields owned by other platform tools (e.g.
+    # 'cert:' for dprox certificate issuance, 'local_user:' for samba/shell
+    # provisioning by apply_rbac_plan.yml). The compiler does not validate
+    # them. To add validation, define the field here.
+    model_config = ConfigDict(extra="allow")
+
     name: str
     description: str | None = None
     access: list[AccessGrant]

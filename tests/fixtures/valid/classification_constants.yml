@@ -1,5 +1,5 @@
 meta:
-  version: "0.2"
+  version: "0.3"
   description: "Test constants"
 
 grade_range:
@@ -11,11 +11,11 @@ reserved_tokens:
   global_scope: "global"
 
 compiler:
-  registry_dir: "~/registry"
+  registry_dir: "~/ansible/registry"
   orgs_dir: "orgs"
   agents_dir: "agents"
   output_file: ".compiled/compiled_plan.yml"
-  schema_version: "0.2"
+  schema_version: "0.3"
 
 admins:
   - beaver

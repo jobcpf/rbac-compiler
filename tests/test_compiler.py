@@ -24,7 +24,7 @@ from rbac_compiler.models import (
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _make_constants(admins: list[str] | None = None) -> Constants:
-    data: dict = {"meta": {"version": "0.2"}}
+    data: dict = {"meta": {"version": "0.3"}}
     if admins is not None:
         data["admins"] = admins
     return Constants.model_validate(data)
@@ -38,7 +38,7 @@ def _make_org(
     data: list[dict] | None = None,
 ) -> OrgDataFile:
     return OrgDataFile.model_validate({
-        "meta": {"version": "0.2"},
+        "meta": {"version": "0.3"},
         "org_definition": {
             "key": org_key,
             "name": org_key.upper(),
@@ -196,7 +196,7 @@ class TestCompilePlanWorkedExample:
                 {"path": "arc/dirs/any_global", "grade": 3, "vertical": "any", "scope": "global"},
             ],
         )
-        self.agents = AgentRegistry(meta=Meta(version="0.2"), agents=[
+        self.agents = AgentRegistry(meta=Meta(version="0.3"), agents=[
             Agent(name="agent_1", access=[_grant(org="arc", grade=1, vertical="any", scope="global")]),
             Agent(name="agent_2", access=[_grant(org="arc", grade=2, vertical="any", scope="mz")]),
             Agent(name="agent_3", access=[_grant(org="arc", grade=3, vertical="tech", scope="global")]),
@@ -249,7 +249,7 @@ class TestAdminUsers:
             {"path": "arc/dirs/b", "grade": 3, "vertical": "finance", "scope": "mz"},
         ])
         plan, _ = compile_plan(constants, [(org, Path("arc.yml"))],
-                               AgentRegistry(meta=Meta(version="0.2"), agents=[]), {}, {})
+                               AgentRegistry(meta=Meta(version="0.3"), agents=[]), {}, {})
         assert len(plan.admin_users) == 1
         assert plan.admin_users[0].name == "beaver"
         assert set(plan.admin_users[0].groups) == set(plan.required_groups)
@@ -260,7 +260,7 @@ class TestAdminUsers:
             {"path": "arc/dirs/a", "grade": 2, "vertical": "tech", "scope": "uk"},
         ])
         plan, _ = compile_plan(constants, [(org, Path("arc.yml"))],
-                               AgentRegistry(meta=Meta(version="0.2"), agents=[]), {}, {})
+                               AgentRegistry(meta=Meta(version="0.3"), agents=[]), {}, {})
         assert plan.admin_users == []
 
     def test_admin_with_empty_required_groups_has_empty_list(self):
@@ -268,7 +268,7 @@ class TestAdminUsers:
         constants = _make_constants(admins=["beaver"])
         org = _make_org("arc", data=[])
         plan, _ = compile_plan(constants, [(org, Path("arc.yml"))],
-                               AgentRegistry(meta=Meta(version="0.2"), agents=[]), {}, {})
+                               AgentRegistry(meta=Meta(version="0.3"), agents=[]), {}, {})
         assert plan.admin_users[0].groups == []
 
 
@@ -277,7 +277,7 @@ class TestCompileWarnings:
         constants = _make_constants()
         org = _make_org("arc", data=[])
         _, warnings = compile_plan(constants, [(org, Path("arc.yml"))],
-                                   AgentRegistry(meta=Meta(version="0.2"), agents=[]), {}, {})
+                                   AgentRegistry(meta=Meta(version="0.3"), agents=[]), {}, {})
         assert any("no directory classifications" in w for w in warnings)
 
     def test_unmatched_agent_warns(self):
@@ -285,7 +285,7 @@ class TestCompileWarnings:
         org = _make_org("arc", data=[
             {"path": "arc/dirs/a", "grade": 2, "vertical": "tech", "scope": "uk"},
         ])
-        agents = AgentRegistry(meta=Meta(version="0.2"), agents=[
+        agents = AgentRegistry(meta=Meta(version="0.3"), agents=[
             # grade=3 agent cannot match grade=2 directory (agent too junior)
             Agent(name="agent_niche", access=[_grant(grade=3, vertical="finance", scope="mz")]),
         ])
@@ -297,7 +297,7 @@ class TestCompileWarnings:
         org = _make_org("arc", data=[
             {"path": "arc/dirs/a", "grade": 3, "vertical": "tech", "scope": "uk"},
         ])
-        agents = AgentRegistry(meta=Meta(version="0.2"), agents=[
+        agents = AgentRegistry(meta=Meta(version="0.3"), agents=[
             Agent(name="agent_ok", access=[_grant(grade=1, vertical="tech", scope="uk")]),
         ])
         _, warnings = compile_plan(constants, [(org, Path("arc.yml"))], agents, {}, {})
@@ -309,7 +309,7 @@ class TestCompileWarnings:
         org = _make_org("arc", data=[
             {"path": "arc/dirs/a", "grade": 3, "vertical": "tech", "scope": "uk"},
         ])
-        agents = AgentRegistry(meta=Meta(version="0.2"), agents=[
+        agents = AgentRegistry(meta=Meta(version="0.3"), agents=[
             Agent(name="agent_empty", access=[]),
         ])
         _, warnings = compile_plan(constants, [(org, Path("arc.yml"))], agents, {}, {})
@@ -324,7 +324,7 @@ class TestCompilePlanStructure:
             {"path": "arc/dirs/a", "grade": 2, "vertical": "tech", "scope": "uk"},
         ])
         plan, _ = compile_plan(constants, [(org, Path("arc.yml"))],
-                               AgentRegistry(meta=Meta(version="0.2"), agents=[]), {}, {})
+                               AgentRegistry(meta=Meta(version="0.3"), agents=[]), {}, {})
         paths = [dc.path for dc in plan.directory_classifications]
         assert paths == sorted(paths)
 
@@ -334,7 +334,7 @@ class TestCompilePlanStructure:
             {"path": "arc/dirs/a", "grade": 2, "vertical": "tech", "scope": "uk"},
         ])
         plan, _ = compile_plan(constants, [(org, Path("arc.yml"))],
-                               AgentRegistry(meta=Meta(version="0.2"), agents=[]), {}, {})
+                               AgentRegistry(meta=Meta(version="0.3"), agents=[]), {}, {})
         for dc in plan.directory_classifications:
             assert dc.mode == "02770"
             assert dc.apply_default_acl is True
@@ -346,7 +346,7 @@ class TestCompilePlanStructure:
             {"path": "arc/dirs/a", "grade": 2, "vertical": "tech", "scope": "uk"},
         ])
         plan, _ = compile_plan(constants, [(org, Path("arc.yml"))],
-                               AgentRegistry(meta=Meta(version="0.2"), agents=[]), {}, {})
+                               AgentRegistry(meta=Meta(version="0.3"), agents=[]), {}, {})
         assert "fileserver_admins" not in plan.required_groups
 
     def test_version_bumped(self):
@@ -355,5 +355,5 @@ class TestCompilePlanStructure:
             {"path": "arc/dirs/a", "grade": 2, "vertical": "tech", "scope": "uk"},
         ])
         plan, _ = compile_plan(constants, [(org, Path("arc.yml"))],
-                               AgentRegistry(meta=Meta(version="0.2"), agents=[]), {}, {})
-        assert plan.compiler_version == "0.3.0"
+                               AgentRegistry(meta=Meta(version="0.3"), agents=[]), {}, {})
+        assert plan.compiler_version == "0.3.1"

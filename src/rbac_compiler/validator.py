@@ -35,10 +35,37 @@ class ValidationResult:
         self.warnings.extend(other.warnings)
 
 
+# rbac-compile v0.3.x accepts only this schema version on input files.
+SUPPORTED_SCHEMA_VERSION = "0.3"
+
+
+def _migration_message_v02_to_v03(detected_version: str) -> str:
+    return (
+        f"detected rbac-compile v0.2 input layout (meta.version='{detected_version}'). "
+        f"This rbac-compile is v0.3.\n\n"
+        f"To migrate:\n"
+        f"  1. Bump `meta.version` to \"0.3\" in:\n"
+        f"       - classification_constants.yml\n"
+        f"       - agent_registry.yml\n"
+        f"       - orgs/<org>.yml  (each)\n"
+        f"  2. In classification_constants.yml also update:\n"
+        f"       compiler:\n"
+        f"         registry_dir: \"~/ansible/registry\"\n"
+        f"         schema_version: \"0.3\"\n"
+        f"  3. Re-run rbac-compile.\n\n"
+        f"See 'RBAC Compiler Architecture v0.3.md' for the full schema."
+    )
+
+
 def validate_constants(constants: Constants, path: Path) -> ValidationResult:
     result = ValidationResult()
     if constants.grade_range.min > constants.grade_range.max:
         result.error("grade_range.min must be ≤ grade_range.max", file=path)
+
+    # Fail-fast on v0.2 layouts (operator-facing migration guidance).
+    if constants.meta.version != SUPPORTED_SCHEMA_VERSION:
+        result.error(_migration_message_v02_to_v03(constants.meta.version), file=path)
+
     return result
 
 

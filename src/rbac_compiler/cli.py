@@ -36,7 +36,7 @@ def _setup_logging(verbose: bool, quiet: bool) -> None:
 
 
 def _default_registry_dir() -> Path:
-    return Path.home() / "registry"
+    return Path.home() / "ansible" / "registry"
 
 
 def _print_warnings(validation: ValidationResult) -> None:
@@ -60,7 +60,7 @@ def _print_errors(validation: ValidationResult) -> None:
     default=None,
     type=click.Path(path_type=Path),
     metavar="PATH",
-    help="Registry directory. Default: ~/registry",
+    help="Registry directory. Default: ~/ansible/registry",
 )
 @click.option(
     "--output", "-o",

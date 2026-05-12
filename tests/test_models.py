@@ -15,18 +15,18 @@ from rbac_compiler.models import (
 class TestConstants:
     def test_valid_defaults(self):
         c = Constants.model_validate({
-            "meta": {"version": "0.2"},
+            "meta": {"version": "0.3"},
         })
         assert c.grade_range.min == 0
         assert c.grade_range.max == 20
         assert c.reserved_tokens.any_vertical == "any"
         assert c.reserved_tokens.global_scope == "global"
-        assert c.compiler.schema_version == "0.2"
+        assert c.compiler.schema_version == "0.3"
         assert c.admins == []
 
     def test_explicit_values_accepted(self):
         c = Constants.model_validate({
-            "meta": {"version": "0.2"},
+            "meta": {"version": "0.3"},
             "grade_range": {"min": 0, "max": 10},
             "reserved_tokens": {"any_vertical": "any", "global_scope": "global"},
             "compiler": {
@@ -34,7 +34,7 @@ class TestConstants:
                 "orgs_dir": "orgs",
                 "agents_dir": "agents",
                 "output_file": ".compiled/compiled_plan.yml",
-                "schema_version": "0.2",
+                "schema_version": "0.3",
             },
             "admins": ["beaver", "ansi"],
         })
@@ -44,9 +44,23 @@ class TestConstants:
     def test_invalid_admin_username_rejected(self):
         with pytest.raises(ValidationError, match="valid Linux username"):
             Constants.model_validate({
-                "meta": {"version": "0.2"},
+                "meta": {"version": "0.3"},
                 "admins": ["BadUser"],
             })
+
+    def test_extra_fields_accepted(self):
+        """Constants tolerates fields owned by other platform tools."""
+        c = Constants.model_validate({
+            "meta": {"version": "0.3"},
+            "agent_user_defaults": {
+                "samba_enabled": True,
+                "shell": "/usr/sbin/nologin",
+                "create_home": False,
+            },
+            "directory_defaults": {"mode": "02770", "apply_default_acl": True},
+        })
+        # Extra fields are preserved on the model instance but not validated.
+        assert c.meta.version == "0.3"
 
 
 class TestOrgDefinition:
@@ -176,3 +190,14 @@ class TestAgent:
             Agent(name="agent-name", access=[
                 AccessGrant(org="arc", grade=0, vertical="any", scope="global")
             ])
+
+    def test_extra_fields_accepted(self):
+        """Agent tolerates fields owned by other platform tools (cert, local_user)."""
+        a = Agent.model_validate({
+            "name": "agent_arc_exec",
+            "description": "ARC Exec Agent",
+            "access": [{"org": "arc", "grade": 0, "vertical": "any", "scope": "global"}],
+            "local_user": {"samba_enabled": True},
+            "cert": {"issue": True, "validity_days": 365},
+        })
+        assert a.name == "agent_arc_exec"
