@@ -11,7 +11,7 @@ reserved_tokens:
   global_scope: "global"
 
 compiler:
-  registry_dir: "~/ansible/registry"
+  registry_dir: "~/registry"
   orgs_dir: "orgs"
   agents_dir: "agents"
   output_file: ".compiled/compiled_plan.yml"

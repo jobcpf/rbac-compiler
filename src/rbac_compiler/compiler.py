@@ -17,7 +17,7 @@ from pathlib import Path
 from .matching import grade_match, scope_match, vertical_match
 from .models import AccessGrant, Agent, AgentRegistry, Constants, OrgDataFile
 
-__version__ = "0.3.1"
+__version__ = "0.3.2"
 
 
 # ── Group name construction ───────────────────────────────────────────────────

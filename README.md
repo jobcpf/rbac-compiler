@@ -54,7 +54,7 @@ rbac-compile [OPTIONS]
 
 | Option | Short | Description |
 |--------|-------|-------------|
-| `--registry-dir PATH` | `-r` | Registry directory. Default: `~/ansible/registry` |
+| `--registry-dir PATH` | `-r` | Registry directory. Default: `~/registry` (fileserver working copy) |
 | `--output PATH` | `-o` | Output file. Default: `<registry-dir>/.compiled/compiled_plan.yml` |
 | `--check` | `-c` | Validate only — do not write output. Exits 0 if valid. |
 | `--format [yaml\|json]` | | Output format. Default: `yaml` |

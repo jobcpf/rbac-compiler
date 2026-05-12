@@ -36,7 +36,11 @@ def _setup_logging(verbose: bool, quiet: bool) -> None:
 
 
 def _default_registry_dir() -> Path:
-    return Path.home() / "ansible" / "registry"
+    # rbac-compile runs on the fileserver, where the registry working copy
+    # lives at ~/registry/. The orchestrator (zaphod) keeps the source of
+    # truth at ~/ansible/registry/ and pushes it here via Ansible; that path
+    # is not the runtime default for this tool.
+    return Path.home() / "registry"
 
 
 def _print_warnings(validation: ValidationResult) -> None:
@@ -60,7 +64,7 @@ def _print_errors(validation: ValidationResult) -> None:
     default=None,
     type=click.Path(path_type=Path),
     metavar="PATH",
-    help="Registry directory. Default: ~/ansible/registry",
+    help="Registry directory. Default: ~/registry",
 )
 @click.option(
     "--output", "-o",

@@ -50,7 +50,7 @@ def _migration_message_v02_to_v03(detected_version: str) -> str:
         f"       - orgs/<org>.yml  (each)\n"
         f"  2. In classification_constants.yml also update:\n"
         f"       compiler:\n"
-        f"         registry_dir: \"~/ansible/registry\"\n"
+        f"         registry_dir: \"~/registry\"      # fileserver working copy path\n"
         f"         schema_version: \"0.3\"\n"
         f"  3. Re-run rbac-compile.\n\n"
         f"See 'RBAC Compiler Architecture v0.3.md' for the full schema."

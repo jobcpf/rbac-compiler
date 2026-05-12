@@ -41,7 +41,7 @@ class ReservedTokens(BaseModel):
 
 
 class CompilerConfig(BaseModel):
-    registry_dir: str = "~/ansible/registry"
+    registry_dir: str = "~/registry"
     orgs_dir: str = "orgs"
     agents_dir: str = "agents"
     output_file: str = ".compiled/compiled_plan.yml"
