@@ -9,24 +9,26 @@ from rbac_compiler.models import (
     Constants,
     DataEntry,
     OrgDefinition,
+    ShareClass,
+    Shares,
 )
 
 
 class TestConstants:
     def test_valid_defaults(self):
         c = Constants.model_validate({
-            "meta": {"version": "0.3"},
+            "meta": {"version": "0.4"},
         })
         assert c.grade_range.min == 0
         assert c.grade_range.max == 20
         assert c.reserved_tokens.any_vertical == "any"
         assert c.reserved_tokens.global_scope == "global"
-        assert c.compiler.schema_version == "0.3"
+        assert c.compiler.schema_version == "0.4"
         assert c.admins == []
 
     def test_explicit_values_accepted(self):
         c = Constants.model_validate({
-            "meta": {"version": "0.3"},
+            "meta": {"version": "0.4"},
             "grade_range": {"min": 0, "max": 10},
             "reserved_tokens": {"any_vertical": "any", "global_scope": "global"},
             "compiler": {
@@ -34,7 +36,7 @@ class TestConstants:
                 "orgs_dir": "orgs",
                 "agents_dir": "agents",
                 "output_file": ".compiled/compiled_plan.yml",
-                "schema_version": "0.3",
+                "schema_version": "0.4",
             },
             "admins": ["beaver", "ansi"],
         })
@@ -44,14 +46,14 @@ class TestConstants:
     def test_invalid_admin_username_rejected(self):
         with pytest.raises(ValidationError, match="valid Linux username"):
             Constants.model_validate({
-                "meta": {"version": "0.3"},
+                "meta": {"version": "0.4"},
                 "admins": ["BadUser"],
             })
 
     def test_extra_fields_accepted(self):
         """Constants tolerates fields owned by other platform tools."""
         c = Constants.model_validate({
-            "meta": {"version": "0.3"},
+            "meta": {"version": "0.4"},
             "agent_user_defaults": {
                 "samba_enabled": True,
                 "shell": "/usr/sbin/nologin",
@@ -60,7 +62,7 @@ class TestConstants:
             "directory_defaults": {"mode": "02770", "apply_default_acl": True},
         })
         # Extra fields are preserved on the model instance but not validated.
-        assert c.meta.version == "0.3"
+        assert c.meta.version == "0.4"
 
 
 class TestOrgDefinition:
@@ -201,3 +203,72 @@ class TestAgent:
             "cert": {"issue": True, "validity_days": 365},
         })
         assert a.name == "agent_arc_exec"
+
+
+class TestShareClass:
+    def test_valid(self):
+        sc = ShareClass(org="arc", grade=3, vertical="tech", scope="mz")
+        assert sc.org == "arc"
+        assert sc.grade == 3
+
+
+class TestShares:
+    def test_all_fields_optional(self):
+        s = Shares()
+        assert s.configs is None
+        assert s.memory is None
+        assert s.sessions is None
+        assert s.scratch is None
+
+    def test_partial_override(self):
+        s = Shares(scratch="/mnt/raid/custom/scratch/")
+        assert s.scratch == "/mnt/raid/custom/scratch/"
+        assert s.memory is None
+
+
+class TestAgentV04Schema:
+    def test_share_class_optional(self):
+        """An agent without share_class is valid (just no classified surfaces)."""
+        a = Agent.model_validate({
+            "name": "agent_orphan",
+            "access": [{"org": "arc", "grade": 5, "vertical": "tech", "scope": "uk"}],
+        })
+        assert a.share_class is None
+
+    def test_share_class_attached(self):
+        a = Agent.model_validate({
+            "name": "agent_x",
+            "share_class": {"org": "arc", "grade": 3, "vertical": "tech", "scope": "mz"},
+        })
+        assert a.share_class is not None
+        assert a.share_class.org == "arc"
+        assert a.access == []  # access[] is optional in v0.4
+
+    def test_sub_agents_valid_identifiers(self):
+        a = Agent.model_validate({
+            "name": "agent_x",
+            "sub_agents": ["literature_review", "fact_check"],
+        })
+        assert a.sub_agents == ["literature_review", "fact_check"]
+
+    def test_sub_agent_main_reserved(self):
+        with pytest.raises(ValidationError, match="reserved"):
+            Agent.model_validate({"name": "agent_x", "sub_agents": ["main"]})
+
+    def test_sub_agent_duplicate_rejected(self):
+        with pytest.raises(ValidationError, match="duplicate"):
+            Agent.model_validate({"name": "agent_x", "sub_agents": ["foo", "foo"]})
+
+    def test_sub_agent_invalid_chars_rejected(self):
+        with pytest.raises(ValidationError, match="not a valid identifier"):
+            Agent.model_validate({"name": "agent_x", "sub_agents": ["Bad-Name"]})
+
+    def test_shares_block(self):
+        a = Agent.model_validate({
+            "name": "agent_x",
+            "share_class": {"org": "arc", "grade": 3, "vertical": "tech", "scope": "mz"},
+            "shares": {"scratch": "/mnt/raid/custom/scratch/"},
+        })
+        assert a.shares is not None
+        assert a.shares.scratch == "/mnt/raid/custom/scratch/"
+        assert a.shares.memory is None

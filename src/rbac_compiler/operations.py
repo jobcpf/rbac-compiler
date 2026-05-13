@@ -118,13 +118,13 @@ def compile_registry(
         org_files=loaded.org_files,
         agent_registry=loaded.agent_registry,
         source_paths={
-            "constants": str(loaded.constants_path),
-            "agents": str(loaded.agents_path),
+            "classification_constants": str(loaded.constants_path),
+            "agent_registry": str(loaded.agents_path),
             "orgs": {of.org: str(p) for of, p in loaded.org_files},
         },
         source_hashes={
-            "constants": loaded.constants_hash,
-            "agents": loaded.agents_hash,
+            "classification_constants": loaded.constants_hash,
+            "agent_registry": loaded.agents_hash,
             "orgs": loaded.org_hashes,
         },
     )

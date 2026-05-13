@@ -21,12 +21,12 @@ class TestLoadRegistry:
     def test_loads_everything(self):
         loaded = load_registry(VALID)
         assert loaded.constants is not None
-        assert len(loaded.org_files) == 2
-        assert {of.org for of, _ in loaded.org_files} == {"arc", "cpf"}
+        assert len(loaded.org_files) == 3
+        assert {of.org for of, _ in loaded.org_files} == {"arc", "cpf", "top"}
         assert loaded.agent_registry is not None
         assert loaded.constants_hash
         assert loaded.agents_hash
-        assert set(loaded.org_hashes.keys()) == {"arc", "cpf"}
+        assert set(loaded.org_hashes.keys()) == {"arc", "cpf", "top"}
 
 
 class TestValidate:

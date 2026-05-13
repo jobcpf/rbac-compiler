@@ -152,7 +152,9 @@ mypy src/
 
 ## Schema version
 
-All registry files must carry `meta.version: "0.3"`. The compiler rejects files with a mismatched version and emits an operator-facing migration message for v0.2 layouts. The expected version is configured in `classification_constants.yml` under `compiler.schema_version`.
+All registry files must carry `meta.version: "0.4"`. The compiler rejects files with a mismatched version and emits an operator-facing migration message for v0.2 / v0.3 layouts. The expected version is configured in `classification_constants.yml` under `compiler.schema_version`.
+
+See [`RBAC Compiler Architecture v0.4.md`](../RBAC%20Compiler%20Architecture%20v0.4.md) for the full schema, including the v0.4 agent shares model (`share_class`, `sub_agents`, `shares`, agent surface classifications).
 
 See [RBAC_Compiler_v0_3_Brief.md](../RBAC_Compiler_v0_3_Brief.md) for the authoritative spec.
 

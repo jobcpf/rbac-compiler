@@ -1,4 +1,4 @@
-"""Tests for core compilation logic — v0.3 lazy, data-driven group computation."""
+"""Tests for core compilation logic — v0.4 lazy data-driven groups + agent shares."""
 
 from pathlib import Path
 
@@ -24,7 +24,7 @@ from rbac_compiler.models import (
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _make_constants(admins: list[str] | None = None) -> Constants:
-    data: dict = {"meta": {"version": "0.3"}}
+    data: dict = {"meta": {"version": "0.4"}}
     if admins is not None:
         data["admins"] = admins
     return Constants.model_validate(data)
@@ -38,7 +38,7 @@ def _make_org(
     data: list[dict] | None = None,
 ) -> OrgDataFile:
     return OrgDataFile.model_validate({
-        "meta": {"version": "0.3"},
+        "meta": {"version": "0.4"},
         "org_definition": {
             "key": org_key,
             "name": org_key.upper(),
@@ -54,6 +54,23 @@ def _grant(org: str = "arc", grade: int = 0, vertical: str = "tech", scope: str 
     return AccessGrant(org=org, grade=grade, vertical=vertical, scope=scope)
 
 
+def _agent(
+    name: str = "agent_test",
+    access: list[dict] | None = None,
+    share_class: dict | None = None,
+    sub_agents: list[str] | None = None,
+    shares: dict | None = None,
+) -> Agent:
+    data: dict = {"name": name, "access": access or []}
+    if share_class is not None:
+        data["share_class"] = share_class
+    if sub_agents is not None:
+        data["sub_agents"] = sub_agents
+    if shares is not None:
+        data["shares"] = shares
+    return Agent.model_validate(data)
+
+
 # ── group_name ────────────────────────────────────────────────────────────────
 
 class TestGroupName:
@@ -63,13 +80,16 @@ class TestGroupName:
     def test_wildcard_tokens(self):
         assert group_name("arc", 5, "any", "global") == "arc_g5_any_global"
 
+    def test_top_org_no_special_case(self):
+        assert group_name("top", 0, "any", "global") == "top_g0_any_global"
 
-# ── collect_used_groups ───────────────────────────────────────────────────────
+
+# ── collect_used_groups (org data + agent share_classes) ──────────────────────
 
 class TestCollectUsedGroups:
-    def test_empty_when_no_data(self):
+    def test_empty_when_no_data_and_no_agents(self):
         org = _make_org("arc", data=[])
-        result = collect_used_groups([(org, Path("arc.yml"))])
+        result = collect_used_groups([(org, Path("arc.yml"))], agents=[])
         assert result == []
 
     def test_one_group_per_data_entry(self):
@@ -77,30 +97,43 @@ class TestCollectUsedGroups:
             {"path": "arc/dirs/a", "grade": 2, "vertical": "tech", "scope": "uk"},
             {"path": "arc/dirs/b", "grade": 3, "vertical": "finance", "scope": "mz"},
         ])
-        result = collect_used_groups([(org, Path("arc.yml"))])
+        result = collect_used_groups([(org, Path("arc.yml"))], agents=[])
         names = {g.name for g in result}
         assert names == {"arc_g2_tech_uk", "arc_g3_finance_mz"}
 
     def test_duplicate_classification_dedupes(self):
-        """Two directories with the same (grade, vertical, scope) = one group."""
         org = _make_org("arc", data=[
             {"path": "arc/dirs/a", "grade": 2, "vertical": "tech", "scope": "uk"},
             {"path": "arc/dirs/b", "grade": 2, "vertical": "tech", "scope": "uk"},
         ])
-        result = collect_used_groups([(org, Path("arc.yml"))])
+        result = collect_used_groups([(org, Path("arc.yml"))], agents=[])
         assert len(result) == 1
-        assert result[0].name == "arc_g2_tech_uk"
 
-    def test_multi_org(self):
-        arc = _make_org("arc", data=[
-            {"path": "arc/dirs/a", "grade": 2, "vertical": "tech", "scope": "uk"},
-        ])
-        cpf = _make_org("cpf", verticals=["any", "projects"], scopes=["global", "uk"], data=[
-            {"path": "cpf/dirs/b", "grade": 1, "vertical": "projects", "scope": "uk"},
-        ])
-        result = collect_used_groups([(arc, Path("arc.yml")), (cpf, Path("cpf.yml"))])
+    def test_share_class_joins_used_groups(self):
+        """v0.4: agent share_class contributes its home group even without
+        any org-data classification at that (grade, vertical, scope)."""
+        org = _make_org("arc", data=[])
+        agent = _agent(
+            name="agent_x",
+            share_class={"org": "arc", "grade": 3, "vertical": "tech", "scope": "mz"},
+        )
+        result = collect_used_groups([(org, Path("arc.yml"))], agents=[agent])
         names = {g.name for g in result}
-        assert names == {"arc_g2_tech_uk", "cpf_g1_projects_uk"}
+        assert "arc_g3_tech_mz" in names
+
+    def test_share_class_dedupes_with_org_data(self):
+        """If both an org data entry and an agent share_class point at the
+        same group, only one used_group is emitted."""
+        org = _make_org("arc", data=[
+            {"path": "arc/dirs/x", "grade": 3, "vertical": "tech", "scope": "mz"},
+        ])
+        agent = _agent(
+            name="agent_x",
+            share_class={"org": "arc", "grade": 3, "vertical": "tech", "scope": "mz"},
+        )
+        result = collect_used_groups([(org, Path("arc.yml"))], agents=[agent])
+        names = [g.name for g in result]
+        assert names.count("arc_g3_tech_mz") == 1
 
 
 # ── grant_matches_group ───────────────────────────────────────────────────────
@@ -146,11 +179,11 @@ class TestGrantMatchesGroup:
         assert not grant_matches_group(_grant(grade=1, vertical="tech", scope="mz"), self._g())
 
 
-# ── groups_for_agent ──────────────────────────────────────────────────────────
+# ── groups_for_agent (with v0.4 self-grant) ───────────────────────────────────
 
 class TestGroupsForAgent:
     def test_no_used_groups_no_memberships(self):
-        agent = Agent(name="agent_test", access=[_grant()])
+        agent = _agent(access=[_grant().model_dump()])
         assert groups_for_agent(agent, []) == []
 
     def test_sorted_output(self):
@@ -158,28 +191,45 @@ class TestGroupsForAgent:
             UsedGroup(name="arc_g3_tech_uk", org="arc", grade=3, vertical="tech", scope="uk"),
             UsedGroup(name="arc_g2_tech_uk", org="arc", grade=2, vertical="tech", scope="uk"),
         ]
-        agent = Agent(name="agent_test", access=[_grant(grade=1, vertical="any", scope="global")])
+        agent = _agent(access=[{"org": "arc", "grade": 1, "vertical": "any", "scope": "global"}])
         result = groups_for_agent(agent, used)
         assert result == sorted(result)
         assert result == ["arc_g2_tech_uk", "arc_g3_tech_uk"]
 
-    def test_multiple_grants_union(self):
+    def test_self_grant_makes_agent_member_of_own_home_group(self):
+        """v0.4: an agent with share_class is automatically in that group,
+        even with no access[] grants."""
         used = [
-            UsedGroup(name="arc_g2_tech_uk", org="arc", grade=2, vertical="tech", scope="uk"),
-            UsedGroup(name="cpf_g3_projects_uk", org="cpf", grade=3, vertical="projects", scope="uk"),
+            UsedGroup(
+                name="arc_g3_tech_mz", org="arc", grade=3, vertical="tech", scope="mz"
+            ),
         ]
-        agent = Agent(name="agent_multi", access=[
-            _grant(org="arc", grade=1, vertical="tech", scope="uk"),
-            _grant(org="cpf", grade=1, vertical="projects", scope="uk"),
-        ])
+        agent = _agent(
+            share_class={"org": "arc", "grade": 3, "vertical": "tech", "scope": "mz"},
+        )
         result = groups_for_agent(agent, used)
-        assert set(result) == {"arc_g2_tech_uk", "cpf_g3_projects_uk"}
+        assert result == ["arc_g3_tech_mz"]
+
+    def test_self_grant_works_with_explicit_access(self):
+        """Effective access = declared access[] + implicit self-grant."""
+        used = [
+            UsedGroup(name="arc_g3_tech_mz", org="arc", grade=3, vertical="tech", scope="mz"),
+            UsedGroup(name="cpf_g2_advisory_uk", org="cpf", grade=2, vertical="advisory", scope="uk"),
+        ]
+        agent = _agent(
+            access=[{"org": "cpf", "grade": 2, "vertical": "advisory", "scope": "uk"}],
+            share_class={"org": "arc", "grade": 3, "vertical": "tech", "scope": "mz"},
+        )
+        result = groups_for_agent(agent, used)
+        assert set(result) == {"arc_g3_tech_mz", "cpf_g2_advisory_uk"}
 
 
-# ── compile_plan (worked example from the v0.3 brief) ─────────────────────────
+# ── compile_plan (worked example from the v0.3 brief, validated under v0.4) ──
 
 class TestCompilePlanWorkedExample:
-    """Reference scenario from RBAC_Compiler_v0_3_Brief.md §Tests."""
+    """Reference scenario from RBAC_Compiler_v0_3_Brief.md §Tests. Carried
+    through v0.4 unchanged — agents in this scenario have no share_class,
+    so no surfaces are emitted, only data-defined classifications matter."""
 
     def setup_method(self):
         self.constants = _make_constants()
@@ -196,7 +246,7 @@ class TestCompilePlanWorkedExample:
                 {"path": "arc/dirs/any_global", "grade": 3, "vertical": "any", "scope": "global"},
             ],
         )
-        self.agents = AgentRegistry(meta=Meta(version="0.3"), agents=[
+        self.agents = AgentRegistry(meta=Meta(version="0.4"), agents=[
             Agent(name="agent_1", access=[_grant(org="arc", grade=1, vertical="any", scope="global")]),
             Agent(name="agent_2", access=[_grant(org="arc", grade=2, vertical="any", scope="mz")]),
             Agent(name="agent_3", access=[_grant(org="arc", grade=3, vertical="tech", scope="global")]),
@@ -206,78 +256,182 @@ class TestCompilePlanWorkedExample:
     def test_required_groups_is_exactly_data_defined(self):
         plan, _ = compile_plan(self.constants, self.org_files, self.agents, {}, {})
         assert set(plan.required_groups) == {
-            "arc_g2_tech_uk",
-            "arc_g2_tech_mz",
-            "arc_g4_tech_rw",
-            "arc_g3_any_uk",
-            "arc_g3_any_global",
+            "arc_g2_tech_uk", "arc_g2_tech_mz", "arc_g4_tech_rw",
+            "arc_g3_any_uk", "arc_g3_any_global",
         }
-        assert len(plan.required_groups) == 5
 
     def test_agent_1_matches_all_five(self):
-        """grade=1 any global → matches every group."""
         plan, _ = compile_plan(self.constants, self.org_files, self.agents, {}, {})
         agent_1 = next(au for au in plan.agent_users if au.name == "agent_1")
-        assert set(agent_1.groups) == {
-            "arc_g2_tech_uk",
-            "arc_g2_tech_mz",
-            "arc_g4_tech_rw",
-            "arc_g3_any_uk",
-            "arc_g3_any_global",
-        }
+        assert len(agent_1.groups) == 5
 
     def test_agent_2_matches_grade_le_2_scope_mz_or_global(self):
-        """grade=2 any mz → only groups at grade ≥ 2, scope ∈ {mz, global}."""
         plan, _ = compile_plan(self.constants, self.org_files, self.agents, {}, {})
         agent_2 = next(au for au in plan.agent_users if au.name == "agent_2")
         assert set(agent_2.groups) == {"arc_g2_tech_mz", "arc_g3_any_global"}
 
     def test_agent_3_matches_grade_le_3_tech_or_any_scope_global(self):
-        """grade=3 tech global → grade ≥ 3, vertical ∈ {tech, any}, any scope (via global)."""
         plan, _ = compile_plan(self.constants, self.org_files, self.agents, {}, {})
         agent_3 = next(au for au in plan.agent_users if au.name == "agent_3")
         assert set(agent_3.groups) == {"arc_g3_any_global", "arc_g3_any_uk", "arc_g4_tech_rw"}
 
 
-# ── compile_plan — admins, warnings, edge cases ───────────────────────────────
+# ── v0.4 agent share surfaces ─────────────────────────────────────────────────
+
+class TestAgentSurfaceClassifications:
+    def setup_method(self):
+        self.constants = _make_constants()
+        self.org = _make_org("arc")
+        self.agent = _agent(
+            name="agent_arc_research_mz",
+            share_class={"org": "arc", "grade": 3, "vertical": "tech", "scope": "mz"},
+        )
+        self.agents = AgentRegistry(meta=Meta(version="0.4"), agents=[self.agent])
+        self.org_files = [(self.org, Path("arc.yml"))]
+
+    def test_three_classifications_per_agent_with_share_class(self):
+        """One per classified surface (memory, sessions, scratch). No configs.
+        No per-sub-agent multiplication."""
+        plan, _ = compile_plan(self.constants, self.org_files, self.agents, {}, {})
+        agent_paths = [
+            dc.path for dc in plan.directory_classifications
+            if "agents/agent_arc_research_mz" in dc.path
+        ]
+        assert set(agent_paths) == {
+            "arc/agents/agent_arc_research_mz/memory/",
+            "arc/agents/agent_arc_research_mz/sessions/",
+            "arc/agents/agent_arc_research_mz/scratch/",
+        }
+
+    def test_configs_surface_not_classified(self):
+        """configs/ is mode 0700, owned by agent user — Ansible handles via
+        the agent bootstrap playbook, not via directory_classifications."""
+        plan, _ = compile_plan(self.constants, self.org_files, self.agents, {}, {})
+        configs_entries = [
+            dc for dc in plan.directory_classifications
+            if "/configs/" in dc.path
+        ]
+        assert configs_entries == []
+
+    def test_surface_classifications_owned_by_agent_user(self):
+        plan, _ = compile_plan(self.constants, self.org_files, self.agents, {}, {})
+        agent_entries = [
+            dc for dc in plan.directory_classifications
+            if "agents/agent_arc_research_mz" in dc.path
+        ]
+        for dc in agent_entries:
+            assert dc.owner == "agent_arc_research_mz"
+
+    def test_org_data_classifications_owned_by_root(self):
+        """v0.4 introduces the owner field; existing org data classifications
+        default to root."""
+        org = _make_org("arc", data=[
+            {"path": "arc/dropbox/x", "grade": 2, "vertical": "tech", "scope": "uk"},
+        ])
+        plan, _ = compile_plan(
+            self.constants, [(org, Path("arc.yml"))],
+            AgentRegistry(meta=Meta(version="0.4"), agents=[]),
+            {}, {},
+        )
+        for dc in plan.directory_classifications:
+            assert dc.owner == "root"
+
+    def test_no_surface_emission_without_share_class(self):
+        agent = _agent(name="agent_orphan", access=[
+            {"org": "arc", "grade": 5, "vertical": "tech", "scope": "uk"},
+        ])
+        agents = AgentRegistry(meta=Meta(version="0.4"), agents=[agent])
+        plan, warnings = compile_plan(
+            self.constants, self.org_files, agents, {}, {},
+        )
+        agent_entries = [
+            dc for dc in plan.directory_classifications
+            if "agent_orphan" in dc.path
+        ]
+        assert agent_entries == []
+        # Warns because the agent has access[] but no share_class — likely
+        # not what the operator intended.
+        assert any("agent_orphan" in w and "share_class" in w for w in warnings)
+
+    def test_sub_agents_do_not_multiply_classifications(self):
+        """v0.4: sub-agents are runtime artefacts; rbac-compile emits 3 (not
+        3*(1+N)) classifications per agent regardless of sub_agents."""
+        agent = _agent(
+            name="agent_with_subs",
+            share_class={"org": "arc", "grade": 3, "vertical": "tech", "scope": "mz"},
+            sub_agents=["literature_review", "fact_check", "summarise"],
+        )
+        agents = AgentRegistry(meta=Meta(version="0.4"), agents=[agent])
+        plan, _ = compile_plan(self.constants, self.org_files, agents, {}, {})
+        agent_entries = [
+            dc for dc in plan.directory_classifications
+            if "agent_with_subs" in dc.path
+        ]
+        assert len(agent_entries) == 3  # one per classified surface
+
+    def test_shares_override_emits_overridden_path(self):
+        agent = _agent(
+            name="agent_arc_finance",
+            share_class={"org": "arc", "grade": 5, "vertical": "finance", "scope": "global"},
+            shares={"scratch": "/mnt/raid/shared_drives/pa_scratch/"},
+        )
+        agents = AgentRegistry(meta=Meta(version="0.4"), agents=[agent])
+        plan, _ = compile_plan(self.constants, self.org_files, agents, {}, {})
+        # Filter by description (path no longer ends in "/scratch/" since it
+        # was overridden to /mnt/raid/shared_drives/pa_scratch/).
+        scratch = next(
+            dc for dc in plan.directory_classifications
+            if (dc.description or "").endswith("agent_arc_finance scratch surface")
+        )
+        assert scratch.path == "shared_drives/pa_scratch/"
+
+    def test_top_org_agent_no_special_case(self):
+        """A top-org agent emits classifications under top/agents/<name>/..."""
+        top_org = _make_org("top", verticals=["any"], scopes=["global"], max_grade=0)
+        agent = _agent(
+            name="agent_oversight",
+            share_class={"org": "top", "grade": 0, "vertical": "any", "scope": "global"},
+        )
+        agents = AgentRegistry(meta=Meta(version="0.4"), agents=[agent])
+        plan, _ = compile_plan(
+            self.constants,
+            [(top_org, Path("top.yml"))],
+            agents, {}, {},
+        )
+        agent_paths = [
+            dc.path for dc in plan.directory_classifications
+            if "agent_oversight" in dc.path
+        ]
+        assert set(agent_paths) == {
+            "top/agents/agent_oversight/memory/",
+            "top/agents/agent_oversight/sessions/",
+            "top/agents/agent_oversight/scratch/",
+        }
+
+
+# ── compile_plan — admins, warnings, structure ────────────────────────────────
 
 class TestAdminUsers:
     def test_admin_user_in_every_required_group(self):
         constants = _make_constants(admins=["beaver"])
         org = _make_org("arc", data=[
             {"path": "arc/dirs/a", "grade": 2, "vertical": "tech", "scope": "uk"},
-            {"path": "arc/dirs/b", "grade": 3, "vertical": "finance", "scope": "mz"},
         ])
-        plan, _ = compile_plan(constants, [(org, Path("arc.yml"))],
-                               AgentRegistry(meta=Meta(version="0.3"), agents=[]), {}, {})
-        assert len(plan.admin_users) == 1
+        plan, _ = compile_plan(
+            constants, [(org, Path("arc.yml"))],
+            AgentRegistry(meta=Meta(version="0.4"), agents=[]), {}, {},
+        )
         assert plan.admin_users[0].name == "beaver"
         assert set(plan.admin_users[0].groups) == set(plan.required_groups)
-
-    def test_no_admins_block_produces_no_admin_users(self):
-        constants = _make_constants()  # admins absent, defaults to []
-        org = _make_org("arc", data=[
-            {"path": "arc/dirs/a", "grade": 2, "vertical": "tech", "scope": "uk"},
-        ])
-        plan, _ = compile_plan(constants, [(org, Path("arc.yml"))],
-                               AgentRegistry(meta=Meta(version="0.3"), agents=[]), {}, {})
-        assert plan.admin_users == []
-
-    def test_admin_with_empty_required_groups_has_empty_list(self):
-        """Empty data → admins exist but with no group memberships yet."""
-        constants = _make_constants(admins=["beaver"])
-        org = _make_org("arc", data=[])
-        plan, _ = compile_plan(constants, [(org, Path("arc.yml"))],
-                               AgentRegistry(meta=Meta(version="0.3"), agents=[]), {}, {})
-        assert plan.admin_users[0].groups == []
 
 
 class TestCompileWarnings:
     def test_empty_data_warns(self):
-        constants = _make_constants()
-        org = _make_org("arc", data=[])
-        _, warnings = compile_plan(constants, [(org, Path("arc.yml"))],
-                                   AgentRegistry(meta=Meta(version="0.3"), agents=[]), {}, {})
+        _, warnings = compile_plan(
+            _make_constants(),
+            [(_make_org("arc", data=[]), Path("arc.yml"))],
+            AgentRegistry(meta=Meta(version="0.4"), agents=[]), {}, {},
+        )
         assert any("no directory classifications" in w for w in warnings)
 
     def test_unmatched_agent_warns(self):
@@ -285,35 +439,13 @@ class TestCompileWarnings:
         org = _make_org("arc", data=[
             {"path": "arc/dirs/a", "grade": 2, "vertical": "tech", "scope": "uk"},
         ])
-        agents = AgentRegistry(meta=Meta(version="0.3"), agents=[
-            # grade=3 agent cannot match grade=2 directory (agent too junior)
-            Agent(name="agent_niche", access=[_grant(grade=3, vertical="finance", scope="mz")]),
+        agents = AgentRegistry(meta=Meta(version="0.4"), agents=[
+            Agent(name="agent_niche", access=[
+                _grant(grade=3, vertical="finance", scope="mz"),
+            ]),
         ])
         _, warnings = compile_plan(constants, [(org, Path("arc.yml"))], agents, {}, {})
         assert any("agent_niche" in w and "matches no" in w for w in warnings)
-
-    def test_matched_agent_does_not_warn(self):
-        constants = _make_constants()
-        org = _make_org("arc", data=[
-            {"path": "arc/dirs/a", "grade": 3, "vertical": "tech", "scope": "uk"},
-        ])
-        agents = AgentRegistry(meta=Meta(version="0.3"), agents=[
-            Agent(name="agent_ok", access=[_grant(grade=1, vertical="tech", scope="uk")]),
-        ])
-        _, warnings = compile_plan(constants, [(org, Path("arc.yml"))], agents, {}, {})
-        assert not any("agent_ok" in w for w in warnings)
-
-    def test_agent_with_no_grants_does_not_warn_about_matching(self):
-        """No access grants → validation already warned; don't double-warn."""
-        constants = _make_constants()
-        org = _make_org("arc", data=[
-            {"path": "arc/dirs/a", "grade": 3, "vertical": "tech", "scope": "uk"},
-        ])
-        agents = AgentRegistry(meta=Meta(version="0.3"), agents=[
-            Agent(name="agent_empty", access=[]),
-        ])
-        _, warnings = compile_plan(constants, [(org, Path("arc.yml"))], agents, {}, {})
-        assert not any("agent_empty" in w and "matches no" in w for w in warnings)
 
 
 class TestCompilePlanStructure:
@@ -323,37 +455,21 @@ class TestCompilePlanStructure:
             {"path": "arc/dirs/z", "grade": 2, "vertical": "tech", "scope": "uk"},
             {"path": "arc/dirs/a", "grade": 2, "vertical": "tech", "scope": "uk"},
         ])
-        plan, _ = compile_plan(constants, [(org, Path("arc.yml"))],
-                               AgentRegistry(meta=Meta(version="0.3"), agents=[]), {}, {})
+        plan, _ = compile_plan(
+            constants, [(org, Path("arc.yml"))],
+            AgentRegistry(meta=Meta(version="0.4"), agents=[]), {}, {},
+        )
         paths = [dc.path for dc in plan.directory_classifications]
         assert paths == sorted(paths)
-
-    def test_directory_classification_mode_and_acl(self):
-        constants = _make_constants()
-        org = _make_org("arc", data=[
-            {"path": "arc/dirs/a", "grade": 2, "vertical": "tech", "scope": "uk"},
-        ])
-        plan, _ = compile_plan(constants, [(org, Path("arc.yml"))],
-                               AgentRegistry(meta=Meta(version="0.3"), agents=[]), {}, {})
-        for dc in plan.directory_classifications:
-            assert dc.mode == "02770"
-            assert dc.apply_default_acl is True
-
-    def test_fileserver_admins_not_injected(self):
-        """v0.3 drops the implicit fileserver_admins group."""
-        constants = _make_constants()
-        org = _make_org("arc", data=[
-            {"path": "arc/dirs/a", "grade": 2, "vertical": "tech", "scope": "uk"},
-        ])
-        plan, _ = compile_plan(constants, [(org, Path("arc.yml"))],
-                               AgentRegistry(meta=Meta(version="0.3"), agents=[]), {}, {})
-        assert "fileserver_admins" not in plan.required_groups
 
     def test_version_bumped(self):
         constants = _make_constants()
         org = _make_org("arc", data=[
             {"path": "arc/dirs/a", "grade": 2, "vertical": "tech", "scope": "uk"},
         ])
-        plan, _ = compile_plan(constants, [(org, Path("arc.yml"))],
-                               AgentRegistry(meta=Meta(version="0.3"), agents=[]), {}, {})
-        assert plan.compiler_version == "0.3.2"
+        plan, _ = compile_plan(
+            constants, [(org, Path("arc.yml"))],
+            AgentRegistry(meta=Meta(version="0.4"), agents=[]), {}, {},
+        )
+        assert plan.compiler_version == "0.4.0"
+        assert plan.schema_version == "0.4"

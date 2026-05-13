@@ -35,25 +35,30 @@ class ValidationResult:
         self.warnings.extend(other.warnings)
 
 
-# rbac-compile v0.3.x accepts only this schema version on input files.
-SUPPORTED_SCHEMA_VERSION = "0.3"
+# rbac-compile v0.4.x accepts only this schema version on input files.
+SUPPORTED_SCHEMA_VERSION = "0.4"
 
 
-def _migration_message_v02_to_v03(detected_version: str) -> str:
+def _migration_message_to_v04(detected_version: str) -> str:
     return (
-        f"detected rbac-compile v0.2 input layout (meta.version='{detected_version}'). "
-        f"This rbac-compile is v0.3.\n\n"
+        f"detected legacy rbac-compile input layout (meta.version='{detected_version}'). "
+        f"This rbac-compile is v0.4.\n\n"
         f"To migrate:\n"
-        f"  1. Bump `meta.version` to \"0.3\" in:\n"
+        f"  1. Bump `meta.version` to \"0.4\" in:\n"
         f"       - classification_constants.yml\n"
         f"       - agent_registry.yml\n"
         f"       - orgs/<org>.yml  (each)\n"
         f"  2. In classification_constants.yml also update:\n"
         f"       compiler:\n"
-        f"         registry_dir: \"~/registry\"      # fileserver working copy path\n"
-        f"         schema_version: \"0.3\"\n"
-        f"  3. Re-run rbac-compile.\n\n"
-        f"See 'RBAC Compiler Architecture v0.3.md' for the full schema."
+        f"         schema_version: \"0.4\"\n"
+        f"  3. Add `share_class: {{org, grade, vertical, scope}}` to every agent\n"
+        f"     in agent_registry.yml that needs classified surfaces\n"
+        f"     (memory/sessions/scratch directories on the fileserver).\n"
+        f"  4. If you have cross-org or platform-administrative agents, create\n"
+        f"     orgs/top.yml (verticals: [any], scopes: [global]) and set\n"
+        f"     share_class.org: top on those agents.\n"
+        f"  5. Re-run rbac-compile.\n\n"
+        f"See 'RBAC Compiler Architecture v0.4.md' for the full schema."
     )
 
 
@@ -62,9 +67,9 @@ def validate_constants(constants: Constants, path: Path) -> ValidationResult:
     if constants.grade_range.min > constants.grade_range.max:
         result.error("grade_range.min must be ≤ grade_range.max", file=path)
 
-    # Fail-fast on v0.2 layouts (operator-facing migration guidance).
+    # Fail-fast on legacy (v0.2 / v0.3) layouts.
     if constants.meta.version != SUPPORTED_SCHEMA_VERSION:
-        result.error(_migration_message_v02_to_v03(constants.meta.version), file=path)
+        result.error(_migration_message_to_v04(constants.meta.version), file=path)
 
     return result
 
@@ -145,6 +150,52 @@ def validate_org_file(
     return result
 
 
+def _validate_classification_tuple(
+    org_key: str,
+    grade: int,
+    vertical: str,
+    scope: str,
+    known_orgs: dict[str, OrgDataFile],
+    context: str,
+    path: Path,
+    result: "ValidationResult",
+) -> None:
+    """Shared check: an (org, grade, vertical, scope) tuple is consistent with
+    the named org's declared vocabulary. Used for both AccessGrant entries
+    and ShareClass blocks. `context` prefixes each error (e.g. "Agent 'X'
+    access grant" or "Agent 'X' share_class")."""
+    if org_key not in known_orgs:
+        result.error(
+            f"{context}: org '{org_key}' has no org file in registry. "
+            f"Known orgs: {sorted(known_orgs.keys())}",
+            file=path,
+        )
+        return
+
+    org_def = known_orgs[org_key].org_definition
+
+    if grade not in org_def.grades:
+        result.error(
+            f"{context}: grade {grade} not defined for org '{org_key}'. "
+            f"Valid grades: {sorted(org_def.grades.keys())}",
+            file=path,
+        )
+
+    if vertical not in org_def.verticals:
+        result.error(
+            f"{context}: vertical '{vertical}' not in org '{org_key}' "
+            f"verticals ({org_def.verticals})",
+            file=path,
+        )
+
+    if scope not in org_def.scopes:
+        result.error(
+            f"{context}: scope '{scope}' not in org '{org_key}' "
+            f"scopes ({org_def.scopes})",
+            file=path,
+        )
+
+
 def validate_agent_registry(
     registry: AgentRegistry,
     constants: Constants,
@@ -161,42 +212,43 @@ def validate_agent_registry(
             result.error(f"Duplicate agent name '{agent.name}'", file=path)
         seen_names.add(agent.name)
 
-        if not agent.access:
-            result.warn(f"Agent '{agent.name}' has no access grants", file=path)
-            continue
+        # An agent must have *something* — either declared access or a
+        # share_class. An agent with neither would be created with no group
+        # memberships and no home directory.
+        if not agent.access and agent.share_class is None:
+            result.warn(
+                f"Agent '{agent.name}' has neither access grants nor share_class — "
+                f"the agent user will be created with no group memberships and "
+                f"no home directory on the fileserver",
+                file=path,
+            )
 
+        # Validate share_class against the declared org's vocabulary.
+        if agent.share_class is not None:
+            sc = agent.share_class
+            _validate_classification_tuple(
+                org_key=sc.org,
+                grade=sc.grade,
+                vertical=sc.vertical,
+                scope=sc.scope,
+                known_orgs=known_orgs,
+                context=f"Agent '{agent.name}' share_class",
+                path=path,
+                result=result,
+            )
+
+        # Validate access grants.
         for grant in agent.access:
-
-            if grant.org not in known_orgs:
-                result.error(
-                    f"Agent '{agent.name}': org '{grant.org}' has no org file in registry. "
-                    f"Known orgs: {sorted(known_orgs.keys())}",
-                    file=path,
-                )
-                continue
-
-            org_def = known_orgs[grant.org].org_definition
-
-            if grant.grade not in org_def.grades:
-                result.error(
-                    f"Agent '{agent.name}': grade {grant.grade} not defined for org '{grant.org}'. "
-                    f"Valid grades: {sorted(org_def.grades.keys())}",
-                    file=path,
-                )
-
-            if grant.vertical not in org_def.verticals:
-                result.error(
-                    f"Agent '{agent.name}': vertical '{grant.vertical}' not in org '{grant.org}' "
-                    f"verticals ({org_def.verticals})",
-                    file=path,
-                )
-
-            if grant.scope not in org_def.scopes:
-                result.error(
-                    f"Agent '{agent.name}': scope '{grant.scope}' not in org '{grant.org}' "
-                    f"scopes ({org_def.scopes})",
-                    file=path,
-                )
+            _validate_classification_tuple(
+                org_key=grant.org,
+                grade=grant.grade,
+                vertical=grant.vertical,
+                scope=grant.scope,
+                known_orgs=known_orgs,
+                context=f"Agent '{agent.name}' access grant",
+                path=path,
+                result=result,
+            )
 
     return result
 

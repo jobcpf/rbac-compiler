@@ -45,7 +45,7 @@ class CompilerConfig(BaseModel):
     orgs_dir: str = "orgs"
     agents_dir: str = "agents"
     output_file: str = ".compiled/compiled_plan.yml"
-    schema_version: str = "0.3"
+    schema_version: str = "0.4"
 
 
 class Constants(BaseModel):
@@ -171,16 +171,59 @@ class AccessGrant(BaseModel):
     scope: str      # specific scope name or the reserved 'global' token
 
 
+class ShareClass(BaseModel):
+    """An agent's home classification — the (org, grade, vertical, scope)
+    tuple that classifies its memory/sessions/scratch surfaces. Lower grade
+    number = more privileged.
+    """
+
+    org: str
+    grade: int
+    vertical: str
+    scope: str
+
+
+class Shares(BaseModel):
+    """Optional per-surface path overrides. Convention paths are used when a
+    surface is absent. Surfaces: configs, memory, sessions, scratch.
+    """
+
+    configs: str | None = None
+    memory: str | None = None
+    sessions: str | None = None
+    scratch: str | None = None
+
+
+SUB_AGENT_NAME_RE = re.compile(r"^[a-z0-9_]+$")
+RESERVED_SUB_AGENT_NAMES = frozenset({"main"})
+
+
 class Agent(BaseModel):
     # extra='allow' tolerates fields owned by other platform tools (e.g.
     # 'cert:' for dprox certificate issuance, 'local_user:' for samba/shell
-    # provisioning by apply_rbac_plan.yml). The compiler does not validate
-    # them. To add validation, define the field here.
+    # provisioning by apply_rbac_plan.yml, 'cloud_sync:' for sync-compile,
+    # 'app:' / 'secret_manifest:' for the agent-container workstream).
+    # The compiler does not validate these. To add validation, define the
+    # field here.
     model_config = ConfigDict(extra="allow")
 
     name: str
     description: str | None = None
-    access: list[AccessGrant]
+    # v0.4: access[] is optional. An agent with only share_class still gets
+    # the implicit self-grant (see compiler.groups_for_agent).
+    access: list[AccessGrant] = Field(default_factory=list)
+    # v0.4: share_class is the agent's home classification. Required for any
+    # agent that wants classified surfaces (memory/sessions/scratch); agents
+    # without it are valid but get no auto-emitted classifications.
+    share_class: ShareClass | None = None
+    # v0.4: sub_agents is informational for rbac-compile — sub-agents are
+    # spawned ad-hoc by the parent agent at runtime and inherit RBAC via
+    # setgid + default ACL on the parent surface. We validate the names
+    # but emit nothing per sub-agent.
+    sub_agents: list[str] = Field(default_factory=list)
+    # v0.4: shares is optional per-surface path overrides. When absent the
+    # convention paths apply (<org>/agents/<name>/<surface>/).
+    shares: Shares | None = None
 
     @field_validator("name")
     @classmethod
@@ -190,6 +233,26 @@ class Agent(BaseModel):
                 f"'{v}' is not a valid Linux username "
                 "(lowercase, alphanumeric + underscores, ≤ 32 chars, must start with a letter)"
             )
+        return v
+
+    @field_validator("sub_agents")
+    @classmethod
+    def valid_sub_agent_names(cls, v: list[str]) -> list[str]:
+        seen: set[str] = set()
+        for name in v:
+            if not SUB_AGENT_NAME_RE.match(name):
+                raise ValueError(
+                    f"sub-agent '{name}' is not a valid identifier "
+                    "(lowercase alphanumeric + underscores only)"
+                )
+            if name in RESERVED_SUB_AGENT_NAMES:
+                raise ValueError(
+                    f"sub-agent name '{name}' is reserved "
+                    "(collides with the implicit 'main' subdirectory)"
+                )
+            if name in seen:
+                raise ValueError(f"duplicate sub-agent name '{name}' within agent")
+            seen.add(name)
         return v
 
 

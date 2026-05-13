@@ -1,0 +1,185 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# Cross-tool path fixture — rbac-compile ↔ sync-compile
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# Both compilers must produce byte-identical paths for the same agent + surface
+# input. sync-compile uses the path as bisync's --local target; rbac-compile
+# uses it as a directory_classification. Divergence → silent breakage.
+#
+# rbac-compile emits RELATIVE paths (Ansible prepends data_root at apply time);
+# sync-compile emits ABSOLUTE paths. The fixture stores both forms so each
+# tool can verify against its own column.
+#
+# To push this fixture to sync-compile, copy this file to
+# `sync_compiler/tests/fixtures/cross_tool/agent_paths.yml` and add a
+# corresponding test that asserts sync-compile's `resolve_surface_path()`
+# produces the `absolute` column for every case. The two test suites
+# remain in lockstep.
+#
+# Surfaces tested: configs, memory, sessions, scratch.
+# Schema version of `agent:` blocks matches agent_registry.yml v0.4 schema.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+data_root: "/mnt/raid/"
+
+cases:
+
+  - name: convention_arc_org_bounded
+    description: Standard org-bounded agent, no shares override.
+    agent:
+      name: agent_arc_research_mz
+      share_class:
+        org: arc
+        grade: 3
+        vertical: tech
+        scope: mz
+    expected:
+      configs:
+        absolute: /mnt/raid/arc/agents/agent_arc_research_mz/configs/
+        relative: arc/agents/agent_arc_research_mz/configs/
+      memory:
+        absolute: /mnt/raid/arc/agents/agent_arc_research_mz/memory/
+        relative: arc/agents/agent_arc_research_mz/memory/
+      sessions:
+        absolute: /mnt/raid/arc/agents/agent_arc_research_mz/sessions/
+        relative: arc/agents/agent_arc_research_mz/sessions/
+      scratch:
+        absolute: /mnt/raid/arc/agents/agent_arc_research_mz/scratch/
+        relative: arc/agents/agent_arc_research_mz/scratch/
+
+  - name: convention_top_cross_org
+    description: Cross-org/admin agent — home in the platform-wide `top` org.
+    agent:
+      name: agent_oversight
+      share_class:
+        org: top
+        grade: 0
+        vertical: any
+        scope: global
+    expected:
+      configs:
+        absolute: /mnt/raid/top/agents/agent_oversight/configs/
+        relative: top/agents/agent_oversight/configs/
+      memory:
+        absolute: /mnt/raid/top/agents/agent_oversight/memory/
+        relative: top/agents/agent_oversight/memory/
+      sessions:
+        absolute: /mnt/raid/top/agents/agent_oversight/sessions/
+        relative: top/agents/agent_oversight/sessions/
+      scratch:
+        absolute: /mnt/raid/top/agents/agent_oversight/scratch/
+        relative: top/agents/agent_oversight/scratch/
+
+  - name: convention_cpf_with_sub_agents
+    description: Sub-agents don't affect surface paths (one bisync per surface).
+    agent:
+      name: agent_cpf_advisory
+      share_class:
+        org: cpf
+        grade: 2
+        vertical: advisory
+        scope: global
+      sub_agents:
+        - literature_review
+        - fact_check
+    expected:
+      configs:
+        absolute: /mnt/raid/cpf/agents/agent_cpf_advisory/configs/
+        relative: cpf/agents/agent_cpf_advisory/configs/
+      memory:
+        absolute: /mnt/raid/cpf/agents/agent_cpf_advisory/memory/
+        relative: cpf/agents/agent_cpf_advisory/memory/
+      sessions:
+        absolute: /mnt/raid/cpf/agents/agent_cpf_advisory/sessions/
+        relative: cpf/agents/agent_cpf_advisory/sessions/
+      scratch:
+        absolute: /mnt/raid/cpf/agents/agent_cpf_advisory/scratch/
+        relative: cpf/agents/agent_cpf_advisory/scratch/
+
+  - name: shares_full_override
+    description: All four surfaces overridden.
+    agent:
+      name: agent_arc_finance
+      share_class:
+        org: arc
+        grade: 5
+        vertical: finance
+        scope: global
+      shares:
+        configs:  /mnt/raid/arc/agents/agent_arc_finance/configs/
+        memory:   /mnt/raid/arc/agents/agent_arc_finance/memory/
+        sessions: /mnt/raid/arc/agents/agent_arc_finance/sessions/
+        scratch:  /mnt/raid/arc/agents/agent_arc_finance/scratch/
+    expected:
+      configs:
+        absolute: /mnt/raid/arc/agents/agent_arc_finance/configs/
+        relative: arc/agents/agent_arc_finance/configs/
+      memory:
+        absolute: /mnt/raid/arc/agents/agent_arc_finance/memory/
+        relative: arc/agents/agent_arc_finance/memory/
+      sessions:
+        absolute: /mnt/raid/arc/agents/agent_arc_finance/sessions/
+        relative: arc/agents/agent_arc_finance/sessions/
+      scratch:
+        absolute: /mnt/raid/arc/agents/agent_arc_finance/scratch/
+        relative: arc/agents/agent_arc_finance/scratch/
+
+  - name: shares_partial_override_scratch_only
+    description: Only scratch overridden; the other three follow convention.
+    agent:
+      name: agent_arc_pa
+      share_class:
+        org: arc
+        grade: 2
+        vertical: any
+        scope: global
+      shares:
+        scratch: /mnt/raid/shared_drives/pa_scratch/
+    expected:
+      configs:
+        absolute: /mnt/raid/arc/agents/agent_arc_pa/configs/
+        relative: arc/agents/agent_arc_pa/configs/
+      memory:
+        absolute: /mnt/raid/arc/agents/agent_arc_pa/memory/
+        relative: arc/agents/agent_arc_pa/memory/
+      sessions:
+        absolute: /mnt/raid/arc/agents/agent_arc_pa/sessions/
+        relative: arc/agents/agent_arc_pa/sessions/
+      scratch:
+        absolute: /mnt/raid/shared_drives/pa_scratch/
+        relative: shared_drives/pa_scratch/
+
+  - name: trailing_slash_canonicalisation
+    description: Override path without trailing slash gets one added.
+    agent:
+      name: agent_arc_canon
+      share_class:
+        org: arc
+        grade: 3
+        vertical: tech
+        scope: global
+      shares:
+        scratch: /mnt/raid/arc/agents/agent_arc_canon/scratch
+    expected:
+      configs:
+        absolute: /mnt/raid/arc/agents/agent_arc_canon/configs/
+        relative: arc/agents/agent_arc_canon/configs/
+      memory:
+        absolute: /mnt/raid/arc/agents/agent_arc_canon/memory/
+        relative: arc/agents/agent_arc_canon/memory/
+      sessions:
+        absolute: /mnt/raid/arc/agents/agent_arc_canon/sessions/
+        relative: arc/agents/agent_arc_canon/sessions/
+      scratch:
+        absolute: /mnt/raid/arc/agents/agent_arc_canon/scratch/
+        relative: arc/agents/agent_arc_canon/scratch/
+
+  - name: no_share_class
+    description: Agent with no share_class — all surfaces resolve to null.
+    agent:
+      name: agent_orphan
+    expected:
+      configs: null
+      memory:  null
+      sessions: null
+      scratch:  null

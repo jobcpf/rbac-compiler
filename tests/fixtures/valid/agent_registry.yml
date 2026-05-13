@@ -1,8 +1,10 @@
 meta:
-  version: "0.3"
+  version: "0.4"
   description: "Test agent registry"
 
 agents:
+
+  # ── Cross-org agent: home in 'top', explicit reach into arc + cpf ──
   - name: agent_oversight
     description: "Full access across all orgs"
     access:
@@ -14,7 +16,14 @@ agents:
         grade: 0
         vertical: any
         scope: global
+    share_class:
+      org: top
+      grade: 0
+      vertical: any
+      scope: global
 
+  # ── Org-bounded agent: home in arc, with sub-agents and bisync metadata ──
+  # cloud_sync is sync-compile's input — ignored here via extra='allow'.
   - name: agent_arc_tech_mz
     description: "ARC tech, Mozambique only"
     access:
@@ -22,3 +31,30 @@ agents:
         grade: 3
         vertical: tech
         scope: mz
+    share_class:
+      org: arc
+      grade: 3
+      vertical: tech
+      scope: mz
+    sub_agents:
+      - literature_review
+      - fact_check
+    cloud_sync:
+      scratch:
+        enabled: true
+        remote: drive_research_mz:Agents/research_mz/scratch
+        conflict_policy: newer
+        schedule: "*:0/1"
+
+  # ── Agent with a shares override (custom paths) ──
+  - name: agent_arc_finance
+    description: "ARC finance, custom paths"
+    share_class:
+      org: arc
+      grade: 5
+      vertical: finance
+      scope: global
+    shares:
+      memory:   /mnt/raid/arc/agents/agent_arc_finance/memory/
+      sessions: /mnt/raid/arc/agents/agent_arc_finance/sessions/
+      scratch:  /mnt/raid/arc/agents/agent_arc_finance/scratch/

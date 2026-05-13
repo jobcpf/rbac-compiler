@@ -20,6 +20,7 @@ def _plan_to_dict(plan: CompiledPlan) -> dict[str, Any]:
         "meta": {
             "compiled_at": plan.compiled_at,
             "compiler_version": plan.compiler_version,
+            "schema_version": plan.schema_version,
             "source_files": plan.source_files,
             "source_hashes": plan.source_hashes,
         },
@@ -42,6 +43,7 @@ def _plan_to_dict(plan: CompiledPlan) -> dict[str, Any]:
         "directory_classifications": [
             {
                 "path": dc.path,
+                "owner": dc.owner,
                 "group": dc.group,
                 "mode": dc.mode,
                 "apply_default_acl": dc.apply_default_acl,

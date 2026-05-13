@@ -1,0 +1,17 @@
+meta:
+  version: "0.4"
+  description: "Top test org — platform-wide pseudo-org"
+
+org_definition:
+  key: top
+  name: "Platform"
+  verticals:
+    - any
+  scopes:
+    - global
+  grades:
+    0: "Platform Executive"
+    5: "Platform Senior"
+    18: "Platform Service"
+
+data: []

@@ -40,6 +40,15 @@ from .models import (
     DataEntry,
     OrgDataFile,
     OrgDefinition,
+    ShareClass,
+    Shares,
+)
+from .resolver import (
+    ALL_SURFACES,
+    CLASSIFIED_SURFACES,
+    DATA_ROOT,
+    resolve_surface_path,
+    resolve_surface_path_relative,
 )
 from .operations import (
     CompileResult,
@@ -51,7 +60,7 @@ from .operations import (
 )
 from .validator import ValidationResult, validate_all
 
-__version__ = "0.3.2"
+__version__ = "0.4.0"
 
 __all__ = [
     "__version__",
@@ -91,6 +100,14 @@ __all__ = [
     "AgentRegistry",
     "Agent",
     "AccessGrant",
+    "ShareClass",
+    "Shares",
+    # Path resolver (shared contract with sync-compile)
+    "DATA_ROOT",
+    "ALL_SURFACES",
+    "CLASSIFIED_SURFACES",
+    "resolve_surface_path",
+    "resolve_surface_path_relative",
     # Errors
     "RegistryError",
     "RegistryWarning",

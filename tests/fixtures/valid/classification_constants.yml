@@ -1,5 +1,5 @@
 meta:
-  version: "0.3"
+  version: "0.4"
   description: "Test constants"
 
 grade_range:
@@ -15,7 +15,7 @@ compiler:
   orgs_dir: "orgs"
   agents_dir: "agents"
   output_file: ".compiled/compiled_plan.yml"
-  schema_version: "0.3"
+  schema_version: "0.4"
 
 admins:
   - beaver
