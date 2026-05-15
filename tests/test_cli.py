@@ -90,6 +90,7 @@ class TestCompileMode:
         assert "agent_users" in data
         assert "admin_users" in data
         assert "directory_classifications" in data
+        assert "agent_private_dirs" in data
 
     def test_output_reports_counts(self, runner, tmp_path):
         output = tmp_path / "plan.yml"
@@ -119,4 +120,4 @@ class TestCompileMode:
     def test_version_flag(self, runner):
         result = runner.invoke(cli, ["--version"])
         assert result.exit_code == 0
-        assert "0.4.0" in result.output
+        assert "0.4.1" in result.output

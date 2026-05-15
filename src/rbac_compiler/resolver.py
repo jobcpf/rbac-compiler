@@ -37,6 +37,14 @@ ALL_SURFACES = ("configs", "memory", "sessions", "scratch")
 # excluded — it's mode 0700, owned by the agent's user, not group-classified.
 CLASSIFIED_SURFACES = ("memory", "sessions", "scratch")
 
+# Surfaces emitted as agent_private_dirs — mode 0700, owned by the agent user,
+# no RBAC group. The apply playbook still materialises them so the agent stack
+# can assume all four surfaces exist on entry.
+PRIVATE_SURFACES = ("configs",)
+
+# Mode for private (configs) surfaces.
+PRIVATE_DIR_MODE = "0700"
+
 
 def _canonicalise(path: str) -> str:
     """Normalise a user-supplied path: trim whitespace, collapse repeated

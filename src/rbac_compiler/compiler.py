@@ -22,9 +22,14 @@ from pathlib import Path
 
 from .matching import grade_match, scope_match, vertical_match
 from .models import AccessGrant, Agent, AgentRegistry, Constants, OrgDataFile
-from .resolver import CLASSIFIED_SURFACES, resolve_surface_path_relative
+from .resolver import (
+    CLASSIFIED_SURFACES,
+    PRIVATE_DIR_MODE,
+    PRIVATE_SURFACES,
+    resolve_surface_path_relative,
+)
 
-__version__ = "0.4.0"
+__version__ = "0.4.1"
 
 
 # ── Group name construction ───────────────────────────────────────────────────
@@ -171,6 +176,23 @@ class AdminUser:
 
 
 @dataclass
+class AgentPrivateDir:
+    """An agent's private directory (configs/) — mode 0700, owned by the
+    agent's own user, NOT group-classified and never ingested.
+
+    These do not belong in directory_classifications (they have no RBAC
+    group), but the apply playbook still has to materialise them so the
+    agent stack can assume all four surfaces exist on entry. Emitted as a
+    separate section so a consumer cross-referencing directory_classifications
+    against required_groups never trips over an agent's own primary group.
+    """
+
+    path: str
+    owner: str
+    mode: str
+
+
+@dataclass
 class CompiledPlan:
     compiled_at: str
     compiler_version: str
@@ -181,6 +203,7 @@ class CompiledPlan:
     agent_users: list[AgentUser]
     admin_users: list[AdminUser]
     directory_classifications: list[DirectoryClassification]
+    agent_private_dirs: list[AgentPrivateDir]
 
 
 # ── Directory classifications ─────────────────────────────────────────────────
@@ -255,6 +278,42 @@ def _classifications_from_agent_surfaces(
     return classifications, warnings
 
 
+def _private_dirs_from_agents(
+    agents: list[Agent],
+) -> tuple[list[AgentPrivateDir], list[str]]:
+    """Emit a private-directory entry (configs/) for each agent with a
+    share_class. Returns (private_dirs, warnings).
+
+    configs/ has no RBAC group — mode 0700, owned by the agent's own user.
+    It is NOT a directory_classification (no group, no ACL) but the apply
+    playbook still materialises it so the agent stack finds all four
+    surfaces present on entry.
+    """
+    private_dirs: list[AgentPrivateDir] = []
+    warnings: list[str] = []
+
+    for agent in agents:
+        if agent.share_class is None:
+            continue
+        for surface in PRIVATE_SURFACES:
+            try:
+                path = resolve_surface_path_relative(agent, surface)
+            except ValueError as exc:
+                warnings.append(
+                    f"Agent '{agent.name}' {surface} surface: {exc} — skipped."
+                )
+                continue
+            if path is None:
+                continue
+            private_dirs.append(AgentPrivateDir(
+                path=path,
+                owner=agent.name,
+                mode=PRIVATE_DIR_MODE,
+            ))
+
+    return private_dirs, warnings
+
+
 # ── Main compilation entry point ──────────────────────────────────────────────
 
 def compile_plan(
@@ -323,6 +382,11 @@ def compile_plan(
     # Sort by path so parents apply before children (Ansible applies top-down)
     dir_classifications.sort(key=lambda d: d.path)
 
+    # ── Agent private dirs (configs/) ─────────────────────────────────────────
+    private_dirs, private_warnings = _private_dirs_from_agents(agents)
+    private_dirs.sort(key=lambda d: d.path)
+    warnings.extend(private_warnings)
+
     plan = CompiledPlan(
         compiled_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         compiler_version=__version__,
@@ -333,5 +397,6 @@ def compile_plan(
         agent_users=agent_users,
         admin_users=admin_users,
         directory_classifications=dir_classifications,
+        agent_private_dirs=private_dirs,
     )
     return plan, warnings

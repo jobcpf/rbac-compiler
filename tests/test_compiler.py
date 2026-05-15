@@ -303,15 +303,54 @@ class TestAgentSurfaceClassifications:
             "arc/agents/agent_arc_research_mz/scratch/",
         }
 
-    def test_configs_surface_not_classified(self):
-        """configs/ is mode 0700, owned by agent user — Ansible handles via
-        the agent bootstrap playbook, not via directory_classifications."""
+    def test_configs_surface_not_in_directory_classifications(self):
+        """configs/ has no RBAC group — it must NOT appear in
+        directory_classifications (would pollute group cross-referencing)."""
         plan, _ = compile_plan(self.constants, self.org_files, self.agents, {}, {})
         configs_entries = [
             dc for dc in plan.directory_classifications
             if "/configs/" in dc.path
         ]
         assert configs_entries == []
+
+    def test_configs_surface_in_agent_private_dirs(self):
+        """v0.4.1: configs/ is emitted as an agent_private_dir so the apply
+        playbook materialises it (mode 0700, owned by the agent user)."""
+        plan, _ = compile_plan(self.constants, self.org_files, self.agents, {}, {})
+        assert len(plan.agent_private_dirs) == 1
+        pd = plan.agent_private_dirs[0]
+        assert pd.path == "arc/agents/agent_arc_research_mz/configs/"
+        assert pd.owner == "agent_arc_research_mz"
+        assert pd.mode == "0700"
+
+    def test_no_private_dir_without_share_class(self):
+        agent = _agent(name="agent_orphan", access=[
+            {"org": "arc", "grade": 5, "vertical": "tech", "scope": "uk"},
+        ])
+        agents = AgentRegistry(meta=Meta(version="0.4"), agents=[agent])
+        plan, _ = compile_plan(self.constants, self.org_files, agents, {}, {})
+        assert plan.agent_private_dirs == []
+
+    def test_private_dirs_sorted_by_path(self):
+        agents = AgentRegistry(meta=Meta(version="0.4"), agents=[
+            _agent(name="agent_zzz", share_class={
+                "org": "arc", "grade": 3, "vertical": "tech", "scope": "mz"}),
+            _agent(name="agent_aaa", share_class={
+                "org": "arc", "grade": 3, "vertical": "tech", "scope": "mz"}),
+        ])
+        plan, _ = compile_plan(self.constants, self.org_files, agents, {}, {})
+        paths = [pd.path for pd in plan.agent_private_dirs]
+        assert paths == sorted(paths)
+
+    def test_configs_shares_override_honoured(self):
+        agent = _agent(
+            name="agent_x",
+            share_class={"org": "arc", "grade": 3, "vertical": "tech", "scope": "mz"},
+            shares={"configs": "/mnt/raid/arc/custom/cfg/"},
+        )
+        agents = AgentRegistry(meta=Meta(version="0.4"), agents=[agent])
+        plan, _ = compile_plan(self.constants, self.org_files, agents, {}, {})
+        assert plan.agent_private_dirs[0].path == "arc/custom/cfg/"
 
     def test_surface_classifications_owned_by_agent_user(self):
         plan, _ = compile_plan(self.constants, self.org_files, self.agents, {}, {})
@@ -471,5 +510,5 @@ class TestCompilePlanStructure:
             constants, [(org, Path("arc.yml"))],
             AgentRegistry(meta=Meta(version="0.4"), agents=[]), {}, {},
         )
-        assert plan.compiler_version == "0.4.0"
+        assert plan.compiler_version == "0.4.1"
         assert plan.schema_version == "0.4"

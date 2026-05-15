@@ -113,12 +113,13 @@ Adding a new organisation requires only dropping a new `.yml` file into `orgs/`.
 
 ## Output
 
-`compiled_plan.yml` contains four sections:
+`compiled_plan.yml` contains five sections:
 
-- **`required_groups`** — all Linux groups that must exist on the fileserver. In v0.3 this is *data-driven*: only groups that at least one directory classifies to appear. Agent grants with wildcards no longer expand into a cartesian product of groups.
+- **`required_groups`** — all Linux groups that must exist on the fileserver. *Data-driven*: only groups that at least one directory classifies to (org data + agent `share_class` home groups) appear. Agent grants with wildcards do not expand into a cartesian product.
 - **`agent_users`** — each agent's username, description, and the subset of `required_groups` their grants match (via the three match rules: grade hierarchy, symmetric vertical wildcard `any`, symmetric scope wildcard `global`).
 - **`admin_users`** — pre-existing Linux users (declared in `classification_constants.yml` under `admins:`) that must be added to *every* group in `required_groups`. Useful for host accounts like `beaver` that need access to everything.
-- **`directory_classifications`** — each classified path with its owning group and ACL mode.
+- **`directory_classifications`** — each classified path with its `owner`, owning `group`, and ACL `mode`. Covers org data plus each agent's `memory/sessions/scratch` surfaces.
+- **`agent_private_dirs`** *(v0.4.1)* — each agent's `configs/` surface: `path`, `owner`, `mode` (`0700`). Agent-private, no RBAC group — listed separately so `directory_classifications` group values stay within `required_groups`.
 
 Ansible reads this file and applies the state to the fileserver.
 

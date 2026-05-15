@@ -15,6 +15,7 @@ Example:
 
 from .compiler import (
     AdminUser,
+    AgentPrivateDir,
     AgentUser,
     CompiledPlan,
     DirectoryClassification,
@@ -60,7 +61,7 @@ from .operations import (
 )
 from .validator import ValidationResult, validate_all
 
-__version__ = "0.4.0"
+__version__ = "0.4.1"
 
 __all__ = [
     "__version__",
@@ -80,6 +81,7 @@ __all__ = [
     "UsedGroup",
     "AgentUser",
     "AdminUser",
+    "AgentPrivateDir",
     "DirectoryClassification",
     "ValidationResult",
     "validate_all",

@@ -52,6 +52,14 @@ def _plan_to_dict(plan: CompiledPlan) -> dict[str, Any]:
             }
             for dc in plan.directory_classifications
         ],
+        "agent_private_dirs": [
+            {
+                "path": pd.path,
+                "owner": pd.owner,
+                "mode": pd.mode,
+            }
+            for pd in plan.agent_private_dirs
+        ],
     }
 
 
